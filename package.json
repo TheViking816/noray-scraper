@@ -6,18 +6,15 @@
   "type": "module",
   "scripts": {
     "start": "node server.js",
-    "dev": "node server.js"
+    "dev": "node server.js",
+    "postinstall": "node node_modules/puppeteer/install.mjs"
   },
   "dependencies": {
     "express": "^4.18.2",
     "puppeteer": "^21.6.0",
-    "puppeteer-core": "^21.6.0",
     "cors": "^2.8.5"
   },
   "engines": {
     "node": ">=18.0.0"
-  },
-  "puppeteer": {
-    "skipDownload": true
   }
 }

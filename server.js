@@ -27,28 +27,19 @@ app.get('/', (req, res) => {
 });
 
 // Configuración de Puppeteer para Render.com
-// Usar Chromium preinstalado en Render en lugar de descargarlo
-const getBrowserConfig = () => {
-  const config = {
-    headless: 'new',
-    args: [
-      '--no-sandbox',
-      '--disable-setuid-sandbox',
-      '--disable-dev-shm-usage',
-      '--disable-accelerated-2d-canvas',
-      '--no-first-run',
-      '--no-zygote',
-      '--disable-gpu'
-    ]
-  };
-
-  // Si estamos en Render, usar su Chromium
-  if (process.env.RENDER) {
-    config.executablePath = '/usr/bin/chromium-browser';
-  }
-
-  return config;
-};
+const getBrowserConfig = () => ({
+  headless: 'new',
+  args: [
+    '--no-sandbox',
+    '--disable-setuid-sandbox',
+    '--disable-dev-shm-usage',
+    '--disable-accelerated-2d-canvas',
+    '--no-first-run',
+    '--no-zygote',
+    '--disable-gpu'
+  ]
+  // Puppeteer descargará y usará su propio Chromium
+});
 
 // Endpoint: Obtener previsión de demanda
 app.get('/api/prevision', async (req, res) => {
