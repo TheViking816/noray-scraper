@@ -28,7 +28,10 @@ app.get('/', (req, res) => {
 
 // Configuración de Puppeteer para Render.com
 const getBrowserConfig = () => {
-  // IMPORTANTE: No usar variables de entorno que puedan estar cacheadas
+  // FORZAR eliminación de variables de entorno problemáticas
+  delete process.env.PUPPETEER_EXECUTABLE_PATH;
+  delete process.env.PUPPETEER_SKIP_CHROMIUM_DOWNLOAD;
+
   const config = {
     headless: 'new',
     args: [
@@ -42,9 +45,11 @@ const getBrowserConfig = () => {
     ]
   };
 
-  // NO especificar executablePath - dejar que Puppeteer use el que descargó
-  // Ignorar PUPPETEER_EXECUTABLE_PATH si existe en el entorno
-  delete process.env.PUPPETEER_EXECUTABLE_PATH;
+  // Si estamos en producción, especificar explícitamente el path del Chromium descargado
+  if (process.env.RENDER) {
+    // Chromium se descarga a /opt/render/.cache/puppeteer/chrome/linux-*/chrome
+    config.executablePath = '/opt/render/.cache/puppeteer/chrome/linux-121.0.6167.85/chrome-linux64/chrome';
+  }
 
   return config;
 };
