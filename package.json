@@ -1,0 +1,19 @@
+{
+  "name": "noray-scraper",
+  "version": "1.0.0",
+  "description": "Scraper para Noray con Puppeteer",
+  "main": "server.js",
+  "type": "module",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "puppeteer": "^21.6.0",
+    "cors": "^2.8.5"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
