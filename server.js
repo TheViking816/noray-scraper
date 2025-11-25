@@ -1,5 +1,6 @@
 import express from 'express';
-import puppeteer from 'puppeteer';
+import puppeteer from 'puppeteer-core'; // Usamos Core (más ligero)
+import chromium from 'chromium'; // Usamos el binario de Chromium gestionado
 import cors from 'cors';
 
 const app = express();
@@ -7,7 +8,7 @@ const PORT = process.env.PORT || 3000;
 
 // Habilitar CORS para tu PWA
 app.use(cors({
-  origin: '*', // En producción, reemplaza con tu dominio específico
+  origin: '*', 
   methods: ['GET', 'POST']
 }));
 
@@ -17,7 +18,7 @@ app.use(express.json());
 app.get('/', (req, res) => {
   res.json({
     status: 'ok',
-    message: 'Noray Scraper API v1.0',
+    message: 'Noray Scraper API v1.0 (Optimized for Render)',
     endpoints: {
       prevision: '/api/prevision',
       chapero: '/api/chapero',
@@ -26,19 +27,20 @@ app.get('/', (req, res) => {
   });
 });
 
-// Configuración de Puppeteer para Render.com
+// Configuración de Puppeteer OPTIMIZADA para Render Free Tier (512MB RAM)
 const getBrowserConfig = () => ({
-  headless: 'new',
+  executablePath: chromium.path, // Usamos la ruta del paquete 'chromium'
+  headless: true, // 'new' está deprecado en versiones recientes
   args: [
     '--no-sandbox',
     '--disable-setuid-sandbox',
-    '--disable-dev-shm-usage',
+    '--disable-dev-shm-usage', // Vital para Docker/Render
     '--disable-accelerated-2d-canvas',
     '--no-first-run',
     '--no-zygote',
+    '--single-process', // Ayuda en entornos con muy poca RAM
     '--disable-gpu'
   ]
-  // Puppeteer descargará y usará su propio Chromium
 });
 
 // Endpoint: Obtener previsión de demanda
@@ -49,12 +51,21 @@ app.get('/api/prevision', async (req, res) => {
     browser = await puppeteer.launch(getBrowserConfig());
     const page = await browser.newPage();
 
+    // Bloquear recursos innecesarios para ahorrar RAM y ancho de banda
+    await page.setRequestInterception(true);
+    page.on('request', (req) => {
+        if (['image', 'stylesheet', 'font'].includes(req.resourceType())) {
+            req.abort();
+        } else {
+            req.continue();
+        }
+    });
+
     await page.goto('https://noray.cpevalencia.com/PrevisionDemanda.asp', {
-      waitUntil: 'networkidle2',
+      waitUntil: 'domcontentloaded', // networkidle2 espera demasiado a veces
       timeout: 30000
     });
 
-    // Extraer datos usando el mismo HTML que analizamos
     const demandas = await page.evaluate(() => {
       const result = {
         '08-14': { gruas: 0, coches: 0 },
@@ -62,18 +73,14 @@ app.get('/api/prevision', async (req, res) => {
         '20-02': { gruas: 0, coches: 0 }
       };
 
-      // Función para extraer grúas de una sección
       const extractGruas = (seccion) => {
         if (!seccion) return 0;
-        // Buscar "GRUAS" seguido de <Th> con el número
         const match = seccion.match(/GRUAS.*?<Th[^>]*>(\d+)/is);
         return match ? parseInt(match[1]) : 0;
       };
 
-      // Función para extraer coches (ROLON de GRUPO III)
       const extractCoches = (seccion) => {
         if (!seccion) return 0;
-        // Buscar GRUPO III y extraer números de las celdas TD
         const grupoMatch = seccion.match(/GRUPO III.*?(?=<TR|<\/TABLE)/is);
         if (!grupoMatch) return 0;
 
@@ -83,13 +90,10 @@ app.get('/api/prevision', async (req, res) => {
         while ((m = regex.exec(grupoMatch[0])) !== null && numeros.length < 5) {
           numeros.push(parseInt(m[1]) || 0);
         }
-        // ROLON es el 4to número (índice 3)
         return numeros.length >= 4 ? numeros[3] : 0;
       };
 
       const html = document.body.innerHTML;
-
-      // Extraer secciones por jornada
       const idx0814Start = html.indexOf('TDazul');
       const idx1420Start = html.indexOf('TDverde');
       const idx2002Start = html.indexOf('TDrojo');
@@ -144,22 +148,24 @@ app.get('/api/chapero', async (req, res) => {
     browser = await puppeteer.launch(getBrowserConfig());
     const page = await browser.newPage();
 
+    // Bloquear imágenes para ir más rápido
+    await page.setRequestInterception(true);
+    page.on('request', (req) => {
+        if (req.resourceType() === 'image') req.abort();
+        else req.continue();
+    });
+
     await page.goto('https://noray.cpevalencia.com/Chapero.asp', {
-      waitUntil: 'networkidle2',
+      waitUntil: 'domcontentloaded',
       timeout: 30000
     });
 
-    // Extraer fijos no contratados
     const fijos = await page.evaluate(() => {
       const html = document.body.innerHTML;
-
-      // Método 1: Buscar "No contratado (XXX)"
       const match = html.match(/No\s+contratado\s+\((\d+)\)/i);
       if (match) {
         return parseInt(match[1]) || 0;
       }
-
-      // Método 2: Contar elementos con background='imagenes/chapab.jpg'
       const bgMatches = html.match(/background='imagenes\/chapab\.jpg'/gi);
       return bgMatches ? bgMatches.length : 0;
     });
@@ -185,45 +191,45 @@ app.get('/api/chapero', async (req, res) => {
 });
 
 // Endpoint: Obtener todo (previsión + chapero)
+// MODIFICADO: Ejecución secuencial para no reventar la RAM de Render (512MB)
 app.get('/api/all', async (req, res) => {
   let browser;
   try {
-    console.log('🔍 Iniciando scraping completo...');
+    console.log('🔍 Iniciando scraping completo (Secuencial)...');
     browser = await puppeteer.launch(getBrowserConfig());
+    const page = await browser.newPage();
 
-    // Crear dos páginas en paralelo para ir más rápido
-    const [page1, page2] = await Promise.all([
-      browser.newPage(),
-      browser.newPage()
-    ]);
+    // Optimización de recursos
+    await page.setRequestInterception(true);
+    page.on('request', (req) => {
+        if (['image', 'stylesheet', 'font'].includes(req.resourceType())) {
+            req.abort();
+        } else {
+            req.continue();
+        }
+    });
 
-    // Scraping en paralelo
-    const [demandasResult, fijosResult] = await Promise.all([
-      // Previsión
-      (async () => {
-        await page1.goto('https://noray.cpevalencia.com/PrevisionDemanda.asp', {
-          waitUntil: 'networkidle2',
-          timeout: 30000
-        });
-
-        return await page1.evaluate(() => {
-          const result = {
+    // 1. OBTENER PREVISIÓN
+    await page.goto('https://noray.cpevalencia.com/PrevisionDemanda.asp', { waitUntil: 'domcontentloaded' });
+    
+    const demandasResult = await page.evaluate(() => {
+        const result = {
             '08-14': { gruas: 0, coches: 0 },
             '14-20': { gruas: 0, coches: 0 },
             '20-02': { gruas: 0, coches: 0 }
           };
-
+    
           const extractGruas = (seccion) => {
             if (!seccion) return 0;
             const match = seccion.match(/GRUAS.*?<Th[^>]*>(\d+)/is);
             return match ? parseInt(match[1]) : 0;
           };
-
+    
           const extractCoches = (seccion) => {
             if (!seccion) return 0;
             const grupoMatch = seccion.match(/GRUPO III.*?(?=<TR|<\/TABLE)/is);
             if (!grupoMatch) return 0;
-
+    
             const numeros = [];
             const regex = /<TD[^>]*align=center[^>]*nowrap[^>]*>(\d*)/gi;
             let m;
@@ -232,52 +238,44 @@ app.get('/api/all', async (req, res) => {
             }
             return numeros.length >= 4 ? numeros[3] : 0;
           };
-
+    
           const html = document.body.innerHTML;
           const idx0814Start = html.indexOf('TDazul');
           const idx1420Start = html.indexOf('TDverde');
           const idx2002Start = html.indexOf('TDrojo');
-
+    
           if (idx0814Start !== -1 && idx1420Start !== -1) {
             const seccion0814 = html.substring(idx0814Start, idx1420Start);
             result['08-14'].gruas = extractGruas(seccion0814);
             result['08-14'].coches = extractCoches(seccion0814);
           }
-
+    
           if (idx1420Start !== -1 && idx2002Start !== -1) {
             const seccion1420 = html.substring(idx1420Start, idx2002Start);
             result['14-20'].gruas = extractGruas(seccion1420);
             result['14-20'].coches = extractCoches(seccion1420);
           }
-
+    
           if (idx2002Start !== -1) {
             const idxEnd = html.indexOf('</TABLE>', idx2002Start);
             const seccion2002 = html.substring(idx2002Start, idxEnd !== -1 ? idxEnd : html.length);
             result['20-02'].gruas = extractGruas(seccion2002);
             result['20-02'].coches = extractCoches(seccion2002);
           }
-
+    
           return result;
-        });
-      })(),
+    });
 
-      // Chapero
-      (async () => {
-        await page2.goto('https://noray.cpevalencia.com/Chapero.asp', {
-          waitUntil: 'networkidle2',
-          timeout: 30000
-        });
-
-        return await page2.evaluate(() => {
-          const html = document.body.innerHTML;
-          const match = html.match(/No\s+contratado\s+\((\d+)\)/i);
-          if (match) return parseInt(match[1]) || 0;
-
-          const bgMatches = html.match(/background='imagenes\/chapab\.jpg'/gi);
-          return bgMatches ? bgMatches.length : 0;
-        });
-      })()
-    ]);
+    // 2. OBTENER CHAPERO (Reusando la misma página para ahorrar memoria)
+    await page.goto('https://noray.cpevalencia.com/Chapero.asp', { waitUntil: 'domcontentloaded' });
+    
+    const fijosResult = await page.evaluate(() => {
+        const html = document.body.innerHTML;
+        const match = html.match(/No\s+contratado\s+\((\d+)\)/i);
+        if (match) return parseInt(match[1]) || 0;
+        const bgMatches = html.match(/background='imagenes\/chapab\.jpg'/gi);
+        return bgMatches ? bgMatches.length : 0;
+    });
 
     await browser.close();
 
@@ -303,8 +301,4 @@ app.get('/api/all', async (req, res) => {
 
 app.listen(PORT, () => {
   console.log(`🚀 Noray Scraper API ejecutándose en puerto ${PORT}`);
-  console.log(`📍 Endpoints disponibles:`);
-  console.log(`   GET /api/prevision - Obtener previsión de demanda`);
-  console.log(`   GET /api/chapero - Obtener fijos disponibles`);
-  console.log(`   GET /api/all - Obtener todo`);
 });
