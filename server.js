@@ -27,32 +27,19 @@ app.get('/', (req, res) => {
 });
 
 // Configuración de Puppeteer para Render.com
-const getBrowserConfig = () => {
-  // FORZAR eliminación de variables de entorno problemáticas
-  delete process.env.PUPPETEER_EXECUTABLE_PATH;
-  delete process.env.PUPPETEER_SKIP_CHROMIUM_DOWNLOAD;
-
-  const config = {
-    headless: 'new',
-    args: [
-      '--no-sandbox',
-      '--disable-setuid-sandbox',
-      '--disable-dev-shm-usage',
-      '--disable-accelerated-2d-canvas',
-      '--no-first-run',
-      '--no-zygote',
-      '--disable-gpu'
-    ]
-  };
-
-  // Si estamos en producción, especificar explícitamente el path del Chromium descargado
-  if (process.env.RENDER) {
-    // Chromium se descarga a /opt/render/.cache/puppeteer/chrome/linux-*/chrome
-    config.executablePath = '/opt/render/.cache/puppeteer/chrome/linux-121.0.6167.85/chrome-linux64/chrome';
-  }
-
-  return config;
-};
+const getBrowserConfig = () => ({
+  headless: 'new',
+  args: [
+    '--no-sandbox',
+    '--disable-setuid-sandbox',
+    '--disable-dev-shm-usage',
+    '--disable-accelerated-2d-canvas',
+    '--no-first-run',
+    '--no-zygote',
+    '--disable-gpu'
+  ]
+  // Puppeteer descargará y usará su propio Chromium
+});
 
 // Endpoint: Obtener previsión de demanda
 app.get('/api/prevision', async (req, res) => {
