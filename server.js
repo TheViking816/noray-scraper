@@ -488,24 +488,7 @@ app.get('/api/all', async (req, res) => {
       }
     }
 
-    console.log('📊 Fijos final:', fijosResult);
-
-    // Debug: añadir fragmento HTML a la respuesta temporalmente
-    const pageTitle = await page.title();
-    const bodyText = await page.evaluate(() => document.body ? document.body.innerText.substring(0, 500) : 'NO BODY');
-
-    const debugFragment = {
-      pageTitle: pageTitle,
-      bodyTextPreview: bodyText,
-      containsLeyenda: chaperoHTML.includes('LEYENDA'),
-      containsContratado: chaperoHTML.includes('contratado'),
-      containsChapab: chaperoHTML.includes('chapab'),
-      htmlLength: chaperoHTML.length,
-      htmlPreview: chaperoHTML.substring(0, 1000),
-      firstPattern: chaperoHTML.match(/No\s+contratado\s*\((\d+)\)/i) ? 'FOUND' : 'NOT FOUND',
-      secondPattern: (chaperoHTML.match(/background\s*=\s*['"']?imagenes\/chapab\.jpg['"']?/gi) || []).length,
-      legendFragment: legendMatch ? legendMatch[0].substring(0, 500) : 'NOT FOUND'
-    };
+    console.log('📊 Fijos extraídos:', fijosResult);
 
     await browser.close();
 
@@ -515,8 +498,7 @@ app.get('/api/all', async (req, res) => {
       success: true,
       timestamp: new Date().toISOString(),
       demandas: demandasResult,
-      fijos: fijosResult,
-      debug: debugFragment
+      fijos: fijosResult
     });
 
   } catch (error) {
