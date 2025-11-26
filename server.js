@@ -316,6 +316,16 @@ app.get('/api/all', async (req, res) => {
                 'TDrojo=', htmlContent.includes('TDrojo'),
                 'GRUAS=', htmlContent.includes('GRUAS'));
 
+    // Debug: extraer posiciones de los marcadores
+    const idx0814 = htmlContent.indexOf('TDazul');
+    const idx1420 = htmlContent.indexOf('TDverde');
+    const idx2002 = htmlContent.indexOf('TDrojo');
+    console.log('📍 Posiciones:', { TDazul: idx0814, TDverde: idx1420, TDrojo: idx2002 });
+
+    // Debug: extraer contenido alrededor de GRUAS
+    const gruasMatches = [...htmlContent.matchAll(/GRUAS.*?<Th[^>]*>(\d+)/gis)];
+    console.log('🔢 GRUAS encontradas:', gruasMatches.map((m, i) => ({ index: i, valor: m[1], posicion: m.index })));
+
     const demandasResult = await page.evaluate(() => {
         const result = {
             '08-14': { gruas: 0, coches: 0 },
@@ -325,47 +335,69 @@ app.get('/api/all', async (req, res) => {
 
           const extractGruas = (seccion) => {
             if (!seccion) return 0;
+            // Buscar GRUAS seguido de un número en una celda TH
             const match = seccion.match(/GRUAS.*?<Th[^>]*>(\d+)/is);
             return match ? parseInt(match[1]) : 0;
           };
 
           const extractCoches = (seccion) => {
             if (!seccion) return 0;
-            const grupoMatch = seccion.match(/GRUPO III.*?(?=<TR|<\/TABLE)/is);
+            // Buscar GRUPO III y extraer el 4to número (coches)
+            const grupoMatch = seccion.match(/GRUPO III.*?<\/TR>/is);
             if (!grupoMatch) return 0;
 
             const numeros = [];
-            const regex = /<TD[^>]*align=center[^>]*nowrap[^>]*>(\d*)/gi;
+            const regex = /<TD[^>]*>(\d+)<\/TD>/gi;
             let m;
             while ((m = regex.exec(grupoMatch[0])) !== null && numeros.length < 5) {
-              numeros.push(parseInt(m[1]) || 0);
+              numeros.push(parseInt(m[1]));
             }
+            // El índice 3 debería ser "coches" según la estructura de la tabla
             return numeros.length >= 4 ? numeros[3] : 0;
           };
 
-          // Usar document.documentElement.innerHTML para obtener TODO el HTML
-          const html = document.documentElement.innerHTML;
-          const idx0814Start = html.indexOf('TDazul');
-          const idx1420Start = html.indexOf('TDverde');
-          const idx2002Start = html.indexOf('TDrojo');
+          // Usar document.body.innerHTML
+          const html = document.body.innerHTML;
 
-          if (idx0814Start !== -1 && idx1420Start !== -1) {
-            const seccion0814 = html.substring(idx0814Start, idx1420Start);
-            result['08-14'].gruas = extractGruas(seccion0814);
-            result['08-14'].coches = extractCoches(seccion0814);
+          // Buscar las clases CSS que identifican cada turno
+          // TDazul = 08-14, TDverde = 14-20, TDrojo = 20-02
+          const idx0814Start = html.indexOf('class="TDazul"') > -1 ? html.indexOf('class="TDazul"') : html.indexOf('TDazul');
+          const idx1420Start = html.indexOf('class="TDverde"') > -1 ? html.indexOf('class="TDverde"') : html.indexOf('TDverde');
+          const idx2002Start = html.indexOf('class="TDrojo"') > -1 ? html.indexOf('class="TDrojo"') : html.indexOf('TDrojo');
+
+          // Debug: log indices
+          console.log('DEBUG indices:', { idx0814Start, idx1420Start, idx2002Start });
+
+          // Encontrar los límites de cada sección buscando el siguiente <TABLE> o </TABLE>
+          if (idx0814Start !== -1) {
+            const endIdx = idx1420Start !== -1 ? idx1420Start : (idx2002Start !== -1 ? idx2002Start : html.length);
+            const seccion0814 = html.substring(idx0814Start, endIdx);
+            const gruas = extractGruas(seccion0814);
+            const coches = extractCoches(seccion0814);
+            console.log('DEBUG 08-14:', { gruas, coches, seccionLength: seccion0814.length });
+            result['08-14'].gruas = gruas;
+            result['08-14'].coches = coches;
           }
 
-          if (idx1420Start !== -1 && idx2002Start !== -1) {
-            const seccion1420 = html.substring(idx1420Start, idx2002Start);
-            result['14-20'].gruas = extractGruas(seccion1420);
-            result['14-20'].coches = extractCoches(seccion1420);
+          if (idx1420Start !== -1) {
+            const endIdx = idx2002Start !== -1 ? idx2002Start : html.length;
+            const seccion1420 = html.substring(idx1420Start, endIdx);
+            const gruas = extractGruas(seccion1420);
+            const coches = extractCoches(seccion1420);
+            console.log('DEBUG 14-20:', { gruas, coches, seccionLength: seccion1420.length });
+            result['14-20'].gruas = gruas;
+            result['14-20'].coches = coches;
           }
 
           if (idx2002Start !== -1) {
-            const idxEnd = html.indexOf('</TABLE>', idx2002Start);
-            const seccion2002 = html.substring(idx2002Start, idxEnd !== -1 ? idxEnd : html.length);
-            result['20-02'].gruas = extractGruas(seccion2002);
-            result['20-02'].coches = extractCoches(seccion2002);
+            const endTableIdx = html.indexOf('</TABLE>', idx2002Start);
+            const endIdx = endTableIdx !== -1 ? endTableIdx : html.length;
+            const seccion2002 = html.substring(idx2002Start, endIdx);
+            const gruas = extractGruas(seccion2002);
+            const coches = extractCoches(seccion2002);
+            console.log('DEBUG 20-02:', { gruas, coches, seccionLength: seccion2002.length });
+            result['20-02'].gruas = gruas;
+            result['20-02'].coches = coches;
           }
 
           return result;
