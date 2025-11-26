@@ -342,16 +342,27 @@ app.get('/api/all', async (req, res) => {
 
           const extractCoches = (seccion) => {
             if (!seccion) return 0;
-            // Buscar GRUPO III y extraer el 4to número (coches)
-            const grupoMatch = seccion.match(/GRUPO III.*?<\/TR>/is);
-            if (!grupoMatch) return 0;
 
-            const numeros = [];
-            const regex = /<TD[^>]*>(\d+)<\/TD>/gi;
-            let m;
-            while ((m = regex.exec(grupoMatch[0])) !== null && numeros.length < 5) {
-              numeros.push(parseInt(m[1]));
+            // Buscar GRUPO III y la fila completa de datos
+            const grupoMatch = seccion.match(/GRUPO III.*?<\/TR>/is);
+            if (!grupoMatch) {
+              console.log('DEBUG extractCoches: No se encontró GRUPO III');
+              return 0;
             }
+
+            console.log('DEBUG extractCoches: GRUPO III encontrado, contenido:', grupoMatch[0].substring(0, 200));
+
+            // Buscar todos los números en celdas TD
+            const numeros = [];
+            const regex = /<TD[^>]*align=center[^>]*nowrap[^>]*>(\d*)/gi;
+            let m;
+            while ((m = regex.exec(grupoMatch[0])) !== null) {
+              const num = m[1] ? parseInt(m[1]) : 0;
+              numeros.push(num);
+            }
+
+            console.log('DEBUG extractCoches: Números extraídos:', numeros);
+
             // El índice 3 debería ser "coches" según la estructura de la tabla
             return numeros.length >= 4 ? numeros[3] : 0;
           };
