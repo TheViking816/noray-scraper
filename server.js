@@ -359,45 +359,61 @@ app.get('/api/all', async (req, res) => {
           // Usar document.body.innerHTML
           const html = document.body.innerHTML;
 
-          // Buscar las clases CSS que identifican cada turno
-          // TDazul = 08-14, TDverde = 14-20, TDrojo = 20-02
+          // NUEVA ESTRATEGIA: Buscar cada turno en su propia fila
+          // Cada fila tiene formato: <TD class=TDazul>...08/14...<TD>NÚMERO&nbsp;C2
+
+          // Buscar fila completa de 08-14 (TDazul)
+          const row0814Match = html.match(/<TR[^>]*>.*?TDazul.*?08\/14.*?<\/TR>/is);
+          if (row0814Match) {
+            const row0814 = row0814Match[0];
+            result['08-14'].gruas = extractGruas(row0814);
+            result['08-14'].coches = extractCoches(row0814);
+            console.log('DEBUG 08-14 row:', { gruas: result['08-14'].gruas, coches: result['08-14'].coches });
+          }
+
+          // Buscar fila completa de 14-20 (TDverde)
+          const row1420Match = html.match(/<TR[^>]*>.*?TDverde.*?14\/20.*?<\/TR>/is);
+          if (row1420Match) {
+            const row1420 = row1420Match[0];
+            result['14-20'].gruas = extractGruas(row1420);
+            result['14-20'].coches = extractCoches(row1420);
+            console.log('DEBUG 14-20 row:', { gruas: result['14-20'].gruas, coches: result['14-20'].coches });
+          }
+
+          // Buscar fila completa de 20-02 (TDrojo)
+          const row2002Match = html.match(/<TR[^>]*>.*?TDrojo.*?20\/02.*?<\/TR>/is);
+          if (row2002Match) {
+            const row2002 = row2002Match[0];
+            result['20-02'].gruas = extractGruas(row2002);
+            result['20-02'].coches = extractCoches(row2002);
+            console.log('DEBUG 20-02 row:', { gruas: result['20-02'].gruas, coches: result['20-02'].coches });
+          }
+
+          // FALLBACK: Buscar GRUAS por secciones si las filas no funcionan
           const idx0814Start = html.indexOf('class="TDazul"') > -1 ? html.indexOf('class="TDazul"') : html.indexOf('TDazul');
           const idx1420Start = html.indexOf('class="TDverde"') > -1 ? html.indexOf('class="TDverde"') : html.indexOf('TDverde');
           const idx2002Start = html.indexOf('class="TDrojo"') > -1 ? html.indexOf('class="TDrojo"') : html.indexOf('TDrojo');
 
-          // Debug: log indices
           console.log('DEBUG indices:', { idx0814Start, idx1420Start, idx2002Start });
 
-          // Encontrar los límites de cada sección buscando el siguiente <TABLE> o </TABLE>
-          if (idx0814Start !== -1) {
+          // Solo usar secciones para GRUAS si las filas no dieron resultados
+          if (result['08-14'].gruas === 0 && idx0814Start !== -1) {
             const endIdx = idx1420Start !== -1 ? idx1420Start : (idx2002Start !== -1 ? idx2002Start : html.length);
             const seccion0814 = html.substring(idx0814Start, endIdx);
-            const gruas = extractGruas(seccion0814);
-            const coches = extractCoches(seccion0814);
-            console.log('DEBUG 08-14:', { gruas, coches, seccionLength: seccion0814.length });
-            result['08-14'].gruas = gruas;
-            result['08-14'].coches = coches;
+            result['08-14'].gruas = extractGruas(seccion0814);
           }
 
-          if (idx1420Start !== -1) {
+          if (result['14-20'].gruas === 0 && idx1420Start !== -1) {
             const endIdx = idx2002Start !== -1 ? idx2002Start : html.length;
             const seccion1420 = html.substring(idx1420Start, endIdx);
-            const gruas = extractGruas(seccion1420);
-            const coches = extractCoches(seccion1420);
-            console.log('DEBUG 14-20:', { gruas, coches, seccionLength: seccion1420.length });
-            result['14-20'].gruas = gruas;
-            result['14-20'].coches = coches;
+            result['14-20'].gruas = extractGruas(seccion1420);
           }
 
-          if (idx2002Start !== -1) {
+          if (result['20-02'].gruas === 0 && idx2002Start !== -1) {
             const endTableIdx = html.indexOf('</TABLE>', idx2002Start);
             const endIdx = endTableIdx !== -1 ? endTableIdx : html.length;
             const seccion2002 = html.substring(idx2002Start, endIdx);
-            const gruas = extractGruas(seccion2002);
-            const coches = extractCoches(seccion2002);
-            console.log('DEBUG 20-02:', { gruas, coches, seccionLength: seccion2002.length });
-            result['20-02'].gruas = gruas;
-            result['20-02'].coches = coches;
+            result['20-02'].gruas = extractGruas(seccion2002);
           }
 
           return result;
