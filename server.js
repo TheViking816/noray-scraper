@@ -360,12 +360,14 @@ app.get('/api/all', async (req, res) => {
           const html = document.body.innerHTML;
 
           // NUEVA ESTRATEGIA: Buscar cada turno en su propia fila
-          // Cada fila tiene formato: <TD class=TDazul>...08/14...<TD>NÚMERO&nbsp;C2
+          // Según tu ejemplo: <TD class=TDazul>&nbsp08/14 H<TD>NÚMERO&nbsp;C2
 
           // Buscar fila completa de 08-14 (TDazul)
           const row0814Match = html.match(/<TR[^>]*>.*?TDazul.*?08\/14.*?<\/TR>/is);
+          console.log('DEBUG: row0814Match encontrado?', !!row0814Match);
           if (row0814Match) {
             const row0814 = row0814Match[0];
+            console.log('DEBUG 08-14 row content:', row0814.substring(0, 200));
             result['08-14'].gruas = extractGruas(row0814);
             result['08-14'].coches = extractCoches(row0814);
             console.log('DEBUG 08-14 row:', { gruas: result['08-14'].gruas, coches: result['08-14'].coches });
@@ -373,8 +375,10 @@ app.get('/api/all', async (req, res) => {
 
           // Buscar fila completa de 14-20 (TDverde)
           const row1420Match = html.match(/<TR[^>]*>.*?TDverde.*?14\/20.*?<\/TR>/is);
+          console.log('DEBUG: row1420Match encontrado?', !!row1420Match);
           if (row1420Match) {
             const row1420 = row1420Match[0];
+            console.log('DEBUG 14-20 row content:', row1420.substring(0, 200));
             result['14-20'].gruas = extractGruas(row1420);
             result['14-20'].coches = extractCoches(row1420);
             console.log('DEBUG 14-20 row:', { gruas: result['14-20'].gruas, coches: result['14-20'].coches });
@@ -382,38 +386,45 @@ app.get('/api/all', async (req, res) => {
 
           // Buscar fila completa de 20-02 (TDrojo)
           const row2002Match = html.match(/<TR[^>]*>.*?TDrojo.*?20\/02.*?<\/TR>/is);
+          console.log('DEBUG: row2002Match encontrado?', !!row2002Match);
           if (row2002Match) {
             const row2002 = row2002Match[0];
+            console.log('DEBUG 20-02 row content:', row2002.substring(0, 200));
             result['20-02'].gruas = extractGruas(row2002);
             result['20-02'].coches = extractCoches(row2002);
             console.log('DEBUG 20-02 row:', { gruas: result['20-02'].gruas, coches: result['20-02'].coches });
           }
 
-          // FALLBACK: Buscar GRUAS por secciones si las filas no funcionan
-          const idx0814Start = html.indexOf('class="TDazul"') > -1 ? html.indexOf('class="TDazul"') : html.indexOf('TDazul');
-          const idx1420Start = html.indexOf('class="TDverde"') > -1 ? html.indexOf('class="TDverde"') : html.indexOf('TDverde');
-          const idx2002Start = html.indexOf('class="TDrojo"') > -1 ? html.indexOf('class="TDrojo"') : html.indexOf('TDrojo');
+          // FALLBACK: Si las filas no funcionaron, buscar por secciones
+          // Pero primero verificar que realmente necesitamos el fallback
+          const needsFallback = result['08-14'].gruas === 0 && result['14-20'].gruas === 0 && result['20-02'].gruas === 0;
 
-          console.log('DEBUG indices:', { idx0814Start, idx1420Start, idx2002Start });
+          if (needsFallback) {
+            console.log('DEBUG: Usando fallback de secciones');
+            const idx0814Start = html.indexOf('class="TDazul"') > -1 ? html.indexOf('class="TDazul"') : html.indexOf('TDazul');
+            const idx1420Start = html.indexOf('class="TDverde"') > -1 ? html.indexOf('class="TDverde"') : html.indexOf('TDverde');
+            const idx2002Start = html.indexOf('class="TDrojo"') > -1 ? html.indexOf('class="TDrojo"') : html.indexOf('TDrojo');
 
-          // Solo usar secciones para GRUAS si las filas no dieron resultados
-          if (result['08-14'].gruas === 0 && idx0814Start !== -1) {
-            const endIdx = idx1420Start !== -1 ? idx1420Start : (idx2002Start !== -1 ? idx2002Start : html.length);
-            const seccion0814 = html.substring(idx0814Start, endIdx);
-            result['08-14'].gruas = extractGruas(seccion0814);
-          }
+            console.log('DEBUG indices:', { idx0814Start, idx1420Start, idx2002Start });
 
-          if (result['14-20'].gruas === 0 && idx1420Start !== -1) {
-            const endIdx = idx2002Start !== -1 ? idx2002Start : html.length;
-            const seccion1420 = html.substring(idx1420Start, endIdx);
-            result['14-20'].gruas = extractGruas(seccion1420);
-          }
+            if (idx0814Start !== -1) {
+              const endIdx = idx1420Start !== -1 ? idx1420Start : (idx2002Start !== -1 ? idx2002Start : html.length);
+              const seccion0814 = html.substring(idx0814Start, endIdx);
+              result['08-14'].gruas = extractGruas(seccion0814);
+            }
 
-          if (result['20-02'].gruas === 0 && idx2002Start !== -1) {
-            const endTableIdx = html.indexOf('</TABLE>', idx2002Start);
-            const endIdx = endTableIdx !== -1 ? endTableIdx : html.length;
-            const seccion2002 = html.substring(idx2002Start, endIdx);
-            result['20-02'].gruas = extractGruas(seccion2002);
+            if (idx1420Start !== -1) {
+              const endIdx = idx2002Start !== -1 ? idx2002Start : html.length;
+              const seccion1420 = html.substring(idx1420Start, endIdx);
+              result['14-20'].gruas = extractGruas(seccion1420);
+            }
+
+            if (idx2002Start !== -1) {
+              const endTableIdx = html.indexOf('</TABLE>', idx2002Start);
+              const endIdx = endTableIdx !== -1 ? endTableIdx : html.length;
+              const seccion2002 = html.substring(idx2002Start, endIdx);
+              result['20-02'].gruas = extractGruas(seccion2002);
+            }
           }
 
           return result;
@@ -442,21 +453,30 @@ app.get('/api/all', async (req, res) => {
     const fijosResult = await page.evaluate(() => {
         const html = document.body.innerHTML;
 
-        // Método 1: Buscar "No contratado (número)"
-        const match = html.match(/No\s+contratado\s+\((\d+)\)/i);
-        if (match) {
-          console.log('DEBUG Chapero: Método 1 - No contratado:', match[1]);
-          return parseInt(match[1]) || 0;
+        // Buscar "No contratado (número)" con diferentes variaciones
+        // Patrón exacto del HTML: No contratado (103)
+        const patterns = [
+          /No\s+contratado\s+\((\d+)\)/i,
+          /No contratado\s*\((\d+)\)/i,
+          />No\s+contratado\s+\((\d+)\)</i
+        ];
+
+        for (const pattern of patterns) {
+          const match = html.match(pattern);
+          if (match) {
+            console.log('DEBUG Chapero: Encontrado con patrón', pattern, '- Valor:', match[1]);
+            return parseInt(match[1]);
+          }
         }
 
-        // Método 2: Contar imágenes chapab.jpg
+        // Fallback: Contar imágenes chapab.jpg
         const bgMatches = html.match(/background='imagenes\/chapab\.jpg'/gi);
         if (bgMatches) {
-          console.log('DEBUG Chapero: Método 2 - Contando chapab.jpg:', bgMatches.length);
+          console.log('DEBUG Chapero: Fallback - Contando chapab.jpg:', bgMatches.length);
           return bgMatches.length;
         }
 
-        console.log('DEBUG Chapero: No se encontraron fijos');
+        console.log('DEBUG Chapero: No se encontraron fijos. HTML snippet:', html.substring(0, 500));
         return 0;
     });
 
