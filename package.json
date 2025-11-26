@@ -14,7 +14,7 @@
   "dependencies": {
     "cors": "^2.8.5",
     "express": "^4.21.2",
-    "puppeteer": "^23.8.0"
+    "puppeteer-core": "^23.8.0"  // Cambiado de puppeteer a puppeteer-core
   },
   "engines": {
     "node": "20.x"
