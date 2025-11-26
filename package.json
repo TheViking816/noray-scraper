@@ -3,10 +3,10 @@
   "version": "1.0.0",
   "description": "",
   "main": "server.js",
-  "type": "module", // Importante para ES modules
+  "type": "module",
   "scripts": {
     "start": "node server.js",
-    "dev": "node --watch server.js" // Opcional para desarrollo local
+    "dev": "node --watch server.js"
   },
   "keywords": [],
   "author": "",
@@ -14,9 +14,9 @@
   "dependencies": {
     "cors": "^2.8.5",
     "express": "^4.21.2",
-    "puppeteer": "^23.8.0" // Usa la última versión estable
+    "puppeteer": "^23.8.0"
   },
   "engines": {
-    "node": "20.x" // O la versión específica que desees
+    "node": "20.x"
   }
 }
