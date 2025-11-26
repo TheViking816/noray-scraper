@@ -28,6 +28,7 @@ app.get('/', (req, res) => {
 });
 
 // Configuración de Puppeteer OPTIMIZADA para Render Free Tier (512MB RAM)
+// + Evasión de detección de Cloudflare
 const getBrowserConfig = () => ({
   executablePath: chromium.path, // Usamos la ruta del paquete 'chromium'
   headless: true, // 'new' está deprecado en versiones recientes
@@ -39,7 +40,9 @@ const getBrowserConfig = () => ({
     '--no-first-run',
     '--no-zygote',
     '--single-process', // Ayuda en entornos con muy poca RAM
-    '--disable-gpu'
+    '--disable-gpu',
+    '--disable-blink-features=AutomationControlled', // Ocultar que es bot
+    '--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
   ]
 });
 
@@ -50,6 +53,21 @@ app.get('/api/prevision', async (req, res) => {
     console.log('🔍 Iniciando scraping de Previsión...');
     browser = await puppeteer.launch(getBrowserConfig());
     const page = await browser.newPage();
+
+    // Configurar headers anti-detección
+    await page.setExtraHTTPHeaders({
+      'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+      'Accept-Language': 'es-ES,es;q=0.9,en;q=0.8',
+      'Accept-Encoding': 'gzip, deflate, br',
+      'Connection': 'keep-alive',
+      'Upgrade-Insecure-Requests': '1'
+    });
+
+    await page.evaluateOnNewDocument(() => {
+      Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
+      Object.defineProperty(navigator, 'plugins', { get: () => [1, 2, 3, 4, 5] });
+      Object.defineProperty(navigator, 'languages', { get: () => ['es-ES', 'es'] });
+    });
 
     // Bloquear recursos innecesarios para ahorrar RAM y ancho de banda
     await page.setRequestInterception(true);
@@ -62,9 +80,22 @@ app.get('/api/prevision', async (req, res) => {
     });
 
     await page.goto('https://noray.cpevalencia.com/PrevisionDemanda.asp', {
-      waitUntil: 'domcontentloaded', // networkidle2 espera demasiado a veces
-      timeout: 30000
+      waitUntil: 'domcontentloaded',
+      timeout: 60000
     });
+
+    // Esperar bypass de Cloudflare
+    console.log('⏳ Esperando bypass de Cloudflare...');
+    try {
+      await page.waitForFunction(
+        () => !document.title.includes('Just a moment'),
+        { timeout: 30000 }
+      );
+      console.log('✅ Cloudflare bypass completado');
+    } catch (e) {
+      console.log('⚠️ Timeout esperando Cloudflare, continuando...');
+    }
+    await page.waitForTimeout(3000);
 
     const demandas = await page.evaluate(() => {
       const result = {
@@ -148,6 +179,21 @@ app.get('/api/chapero', async (req, res) => {
     browser = await puppeteer.launch(getBrowserConfig());
     const page = await browser.newPage();
 
+    // Configurar headers anti-detección
+    await page.setExtraHTTPHeaders({
+      'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+      'Accept-Language': 'es-ES,es;q=0.9,en;q=0.8',
+      'Accept-Encoding': 'gzip, deflate, br',
+      'Connection': 'keep-alive',
+      'Upgrade-Insecure-Requests': '1'
+    });
+
+    await page.evaluateOnNewDocument(() => {
+      Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
+      Object.defineProperty(navigator, 'plugins', { get: () => [1, 2, 3, 4, 5] });
+      Object.defineProperty(navigator, 'languages', { get: () => ['es-ES', 'es'] });
+    });
+
     // Bloquear imágenes para ir más rápido
     await page.setRequestInterception(true);
     page.on('request', (req) => {
@@ -157,8 +203,21 @@ app.get('/api/chapero', async (req, res) => {
 
     await page.goto('https://noray.cpevalencia.com/Chapero.asp', {
       waitUntil: 'domcontentloaded',
-      timeout: 30000
+      timeout: 60000
     });
+
+    // Esperar bypass de Cloudflare
+    console.log('⏳ Esperando bypass de Cloudflare (Chapero)...');
+    try {
+      await page.waitForFunction(
+        () => !document.title.includes('Just a moment'),
+        { timeout: 30000 }
+      );
+      console.log('✅ Cloudflare bypass completado (Chapero)');
+    } catch (e) {
+      console.log('⚠️ Timeout esperando Cloudflare, continuando...');
+    }
+    await page.waitForTimeout(2000);
 
     const fijos = await page.evaluate(() => {
       const html = document.body.innerHTML;
@@ -199,6 +258,25 @@ app.get('/api/all', async (req, res) => {
     browser = await puppeteer.launch(getBrowserConfig());
     const page = await browser.newPage();
 
+    // Configurar headers para parecer navegador real
+    await page.setExtraHTTPHeaders({
+      'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+      'Accept-Language': 'es-ES,es;q=0.9,en;q=0.8',
+      'Accept-Encoding': 'gzip, deflate, br',
+      'Connection': 'keep-alive',
+      'Upgrade-Insecure-Requests': '1',
+      'Sec-Fetch-Dest': 'document',
+      'Sec-Fetch-Mode': 'navigate',
+      'Sec-Fetch-Site': 'none'
+    });
+
+    // Ocultar que es automatización
+    await page.evaluateOnNewDocument(() => {
+      Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
+      Object.defineProperty(navigator, 'plugins', { get: () => [1, 2, 3, 4, 5] });
+      Object.defineProperty(navigator, 'languages', { get: () => ['es-ES', 'es'] });
+    });
+
     // Optimización de recursos
     await page.setRequestInterception(true);
     page.on('request', (req) => {
@@ -210,8 +288,26 @@ app.get('/api/all', async (req, res) => {
     });
 
     // 1. OBTENER PREVISIÓN
-    await page.goto('https://noray.cpevalencia.com/PrevisionDemanda.asp', { waitUntil: 'domcontentloaded' });
-    
+    await page.goto('https://noray.cpevalencia.com/PrevisionDemanda.asp', {
+      waitUntil: 'domcontentloaded',
+      timeout: 60000
+    });
+
+    // Esperar a que Cloudflare complete su verificación
+    console.log('⏳ Esperando bypass de Cloudflare...');
+    try {
+      await page.waitForFunction(
+        () => !document.title.includes('Just a moment'),
+        { timeout: 30000 }
+      );
+      console.log('✅ Cloudflare bypass completado');
+    } catch (e) {
+      console.log('⚠️ Timeout esperando Cloudflare, continuando de todas formas...');
+    }
+
+    // Esperar un poco más para asegurar que el contenido cargó
+    await page.waitForTimeout(3000);
+
     // Obtener el HTML completo para debug
     const htmlContent = await page.content();
     console.log('📄 HTML recibido (primeros 500 chars):', htmlContent.substring(0, 500));
@@ -276,8 +372,25 @@ app.get('/api/all', async (req, res) => {
     });
 
     // 2. OBTENER CHAPERO (Reusando la misma página para ahorrar memoria)
-    await page.goto('https://noray.cpevalencia.com/Chapero.asp', { waitUntil: 'domcontentloaded' });
-    
+    await page.goto('https://noray.cpevalencia.com/Chapero.asp', {
+      waitUntil: 'domcontentloaded',
+      timeout: 60000
+    });
+
+    // Esperar bypass de Cloudflare también en Chapero
+    console.log('⏳ Esperando bypass de Cloudflare (Chapero)...');
+    try {
+      await page.waitForFunction(
+        () => !document.title.includes('Just a moment'),
+        { timeout: 30000 }
+      );
+      console.log('✅ Cloudflare bypass completado (Chapero)');
+    } catch (e) {
+      console.log('⚠️ Timeout esperando Cloudflare en Chapero, continuando...');
+    }
+
+    await page.waitForTimeout(2000);
+
     const fijosResult = await page.evaluate(() => {
         const html = document.body.innerHTML;
         const match = html.match(/No\s+contratado\s+\((\d+)\)/i);
