@@ -1,278 +1,171 @@
-import express from 'express';
-import puppeteer from 'puppeteer-core'; // Usamos Core (más ligero)
-import chromium from 'chromium'; // Usamos el binario de Chromium gestionado
-import cors from 'cors';
+// server.js
+
+const express = require('express');
+const puppeteer = require('puppeteer');
+const cors = require('cors');
 
 const app = express();
-const PORT = process.env.PORT || 3000;
+const port = 3000;
 
-// Habilitar CORS para tu PWA
-app.use(cors({
-  origin: '*', 
-  methods: ['GET', 'POST']
-}));
+app.use(cors());
 
-app.use(express.json());
+// Función para extraer datos del HTML de Prevision Demanda
+function parseHTML(html) {
+  const parser = new DOMParser();
+  const doc = parser.parseFromString(html, 'text/html');
 
-// Health check
-app.get('/', (req, res) => {
-  res.json({
-    status: 'ok',
-    message: 'Noray Scraper API v1.1 (Regex Fixed)',
-    endpoints: {
-      prevision: '/api/prevision',
-      chapero: '/api/chapero',
-      all: '/api/all'
-    }
-  });
-});
+  // Inicializar el objeto de resultados
+  const result = {
+    success: true,
+    timestamp: new Date().toISOString(),
+    demandas: {
+      "08-14": { gruas: 0, coches: 0 },
+      "14-20": { gruas: 0, coches: 0 },
+      "20-02": { gruas: 0, coches: 0 }
+    },
+    fijos: 0 // Inicializamos fijos
+  };
 
-// Configuración de Puppeteer OPTIMIZADA para Render Free Tier (512MB RAM)
-const getBrowserConfig = () => ({
-  executablePath: chromium.path,
-  headless: true,
-  args: [
-    '--no-sandbox',
-    '--disable-setuid-sandbox',
-    '--disable-dev-shm-usage',
-    '--disable-accelerated-2d-canvas',
-    '--no-first-run',
-    '--no-zygote',
-    '--single-process',
-    '--disable-gpu',
-    '--disable-blink-features=AutomationControlled'
-  ]
-});
+  // 1. Extraer las grúas por turno
+  // Buscamos filas que contengan "GRUAS" y el número en la siguiente celda <TD>
+  const filasGruas = doc.querySelectorAll('TR');
+  for (let fila of filasGruas) {
+    const celdas = fila.querySelectorAll('TD');
+    // Verificar si la primera celda contiene "GRUAS"
+    if (celdas.length > 0 && celdas[0].textContent.trim() === '&nbspGRUAS') {
+      // La estructura es: [0]=Nombre, [1]=Gruas, [2]=Coches, ..., [6]=Asignados
+      // Extraemos el número de la celda 1 (índice 0-based)
+      const numeroGruasText = celdas[1]?.textContent?.trim();
+      const numeroGruas = numeroGruasText && !isNaN(numeroGruasText) ? parseInt(numeroGruasText, 10) : 0;
 
-// Endpoint: Obtener previsión de demanda
-app.get('/api/prevision', async (req, res) => {
-  let browser;
-  try {
-    console.log('🔍 Iniciando scraping de Previsión...');
-    browser = await puppeteer.launch(getBrowserConfig());
-    const page = await browser.newPage();
-
-    // Bloquear recursos para velocidad
-    await page.setRequestInterception(true);
-    page.on('request', (req) => {
-        if (['image', 'stylesheet', 'font'].includes(req.resourceType())) {
-            req.abort();
-        } else {
-            req.continue();
+      // Determinar a qué turno pertenece según el color de la celda anterior
+      // Buscamos la celda que contiene la hora (TDazul, TDverde, TDrojo)
+      let turno = null;
+      // Iteramos hacia atrás en las filas anteriores a ver si encontramos el turno
+      let filaAnterior = fila.previousElementSibling;
+      while (filaAnterior && !turno) {
+        const celdasTurno = filaAnterior.querySelectorAll('TD');
+        for (let c of celdasTurno) {
+          if (c.classList.contains('TDazul')) turno = '08-14';
+          else if (c.classList.contains('TDverde')) turno = '14-20';
+          else if (c.classList.contains('TDrojo')) turno = '20-02';
+          if (turno) break;
         }
-    });
-
-    await page.goto('https://noray.cpevalencia.com/PrevisionDemanda.asp', {
-      waitUntil: 'domcontentloaded',
-      timeout: 60000
-    });
-
-    const demandas = await page.evaluate(() => {
-      const html = document.body.innerHTML;
-      const result = {
-        '08-14': { gruas: 0, coches: 0 },
-        '14-20': { gruas: 0, coches: 0 },
-        '20-02': { gruas: 0, coches: 0 }
-      };
-
-      // 1. PARSEO DE GRÚAS (Tabla Principal)
-      // Dividimos el HTML por las clases de colores para aislar los turnos
-      const mainTableRegex = /class=(TDazul|TDverde|TDrojo)[^>]*colspan=8/gi;
-      const splitHtml = html.split(mainTableRegex);
-      
-      const findSectionContent = (color) => {
-          const index = splitHtml.indexOf(color);
-          if (index !== -1 && index + 1 < splitHtml.length) {
-              return splitHtml[index + 1];
-          }
-          return '';
-      };
-
-      const extractGruas = (sectionHtml) => {
-        // CORREGIDO: Busca "GRUAS" y coge el primer TD numérico que le sigue
-        // Patrón usuario: &nbspGRUAS<TD align=center nowrap>13
-        const match = sectionHtml.match(/GRUAS.*?<TD[^>]*>(\d+)/i);
-        return match ? parseInt(match[1]) : 0;
-      };
-
-      result['08-14'].gruas = extractGruas(findSectionContent('TDazul'));
-      result['14-20'].gruas = extractGruas(findSectionContent('TDverde'));
-      result['20-02'].gruas = extractGruas(findSectionContent('TDrojo'));
-
-      // 2. PARSEO DE COCHES (Tabla Resumen Inferior)
-      // Patrón general: <TD class=TD[color] ...>NOMBRE TURNO</TD><TD ...>NUMERO&nbsp;C2
-      const extractCoches = (color) => {
-        // Buscamos la celda de color y luego, en las celdas siguientes ([\s\S]*?), buscamos el número seguido de C2
-        const regex = new RegExp(`class=${color}[^>]*>[\\s\\S]*?<TD[^>]*>(\\d+)&nbsp;C2`, 'i');
-        const match = html.match(regex);
-        return match ? parseInt(match[1]) : 0;
-      };
-
-      result['08-14'].coches = extractCoches('TDazul');
-      result['14-20'].coches = extractCoches('TDverde');
-      result['20-02'].coches = extractCoches('TDrojo');
-
-      return result;
-    });
-
-    await browser.close();
-    console.log('✅ Previsión obtenida:', demandas);
-
-    res.json({
-      success: true,
-      timestamp: new Date().toISOString(),
-      demandas
-    });
-
-  } catch (error) {
-    console.error('❌ Error en scraping de previsión:', error);
-    if (browser) await browser.close();
-    res.status(500).json({ success: false, error: error.message });
-  }
-});
-
-// Endpoint: Obtener chapero (fijos disponibles)
-app.get('/api/chapero', async (req, res) => {
-  let browser;
-  try {
-    console.log('🔍 Iniciando scraping de Chapero...');
-    browser = await puppeteer.launch(getBrowserConfig());
-    const page = await browser.newPage();
-
-    await page.setRequestInterception(true);
-    page.on('request', (req) => {
-        if (['image', 'stylesheet', 'font'].includes(req.resourceType())) {
-            req.abort();
-        } else {
-            req.continue();
-        }
-    });
-
-    await page.goto('https://noray.cpevalencia.com/Chapero.asp', {
-      waitUntil: 'domcontentloaded',
-      timeout: 60000
-    });
-
-    const fijos = await page.evaluate(() => {
-      const html = document.body.innerHTML;
-      
-      // CORREGIDO: Buscar textualmente "No contratado (XXX)"
-      // Patrón usuario: No contratado (103)
-      const match = html.match(/No\s+contratado\s*\((\d+)\)/i);
-      
-      if (match) {
-          return parseInt(match[1]);
+        filaAnterior = filaAnterior.previousElementSibling;
       }
-      
-      // Fallback por si acaso
-      const bgMatches = html.match(/chapab\.jpg/gi);
-      return bgMatches ? bgMatches.length : 0;
-    });
 
-    await browser.close();
-    console.log('✅ Chapero obtenido:', fijos);
-
-    res.json({
-      success: true,
-      timestamp: new Date().toISOString(),
-      fijos
-    });
-
-  } catch (error) {
-    console.error('❌ Error en scraping de chapero:', error);
-    if (browser) await browser.close();
-    res.status(500).json({ success: false, error: error.message });
+      if (turno && result.demandas[turno]) {
+        result.demandas[turno].gruas = numeroGruas;
+      }
+    }
   }
-});
 
-// Endpoint: Obtener todo (previsión + chapero) - SECUENCIAL
-app.get('/api/all', async (req, res) => {
+  // 2. Extraer los coches por turno
+  // La información de los coches está en una tabla diferente
+  // Buscamos filas en la segunda tabla que contiene los coches
+  const tablas = doc.querySelectorAll('TABLE');
+  // La tabla de coches es la que tiene una estructura específica con las horas coloreadas
+  for (let tabla of tablas) {
+    const filas = tabla.querySelectorAll('TR');
+    for (let fila of filas) {
+      const celdas = fila.querySelectorAll('TD');
+      // Buscamos una fila que contenga información de coches (la que tiene "C2?" y "tc")
+      if (celdas.length >= 5 && celdas[3]?.textContent?.includes('C2')) {
+        // Esta fila contiene la info de coches por turno
+        // Estructura: [0]=hora azul, [1]=hora verde, [2]=texto, [3]=coches turno 14-20, [4]=texto, [5]=coches turno 20-02, [6]=texto
+        // Buscamos el patrón "X C2?" en la celda de la derecha de la hora
+        // Turno 14-20: celda [3] debería tener "18 C2?"
+        // Turno 20-02: celda [5] debería tener "3 C2?"
+        const texto14_20 = celdas[3]?.textContent?.trim();
+        const texto20_02 = celdas[5]?.textContent?.trim();
+
+        // Extraer número antes de "C2?"
+        const match14_20 = texto14_20.match(/(\d+)\s*C2/);
+        const match20_02 = texto20_02.match(/(\d+)\s*C2/);
+
+        if (match14_20) {
+            result.demandas["14-20"].coches = parseInt(match14_20[1], 10);
+        }
+        if (match20_02) {
+            result.demandas["20-02"].coches = parseInt(match20_02[1], 10);
+        }
+        // El turno 08-14 no tiene coches en este ejemplo, pero la lógica general asume 0 si no se encuentra.
+        // No es necesario hacer nada más aquí para 08-14, ya está inicializado a 0.
+      }
+    }
+  }
+
+
+  // 3. Extraer el número de fijos (chaparos contratados)
+  // Buscamos en el HTML de la página Chapero
+  // La lógica es contar cuántos elementos span tienen la clase 'contratado'
+  // Si parseHTML se llama con el HTML de Chapero, usamos esta lógica:
+  // Para esta función, asumimos que recibe el HTML de Prevision Demanda.
+  // El número de fijos parece provenir de otra fuente o se calcula de otra manera.
+  // Sin embargo, en el ejemplo de salida esperada, fijos = 103.
+  // Mirando el HTML de Chapero, parece que los 'contratado' son los fijos.
+  // La lógica de scraping para fijos debe estar en la función scrapeChaparoData.
+  // Si parseHTML recibe el HTML de Chapero, entonces:
+  const contratados = doc.querySelectorAll('span.contratado');
+  // Este cálculo solo es válido si parseHTML recibe el HTML de Chapero
+  // Si recibe el de Prevision Demanda, fijos debe calcularse o pasarse de otra manera.
+  // Dado el contexto, parseHTML recibe Prevision Demanda, y fijos se obtiene de scrapeChaparoData.
+  // Por lo tanto, dejamos fijos en 0 aquí y lo actualizamos en la función principal.
+
+  return result;
+}
+
+// Función para extraer datos del HTML de Chaparo
+function parseChaparoHTML(html) {
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(html, 'text/html');
+
+    const contratados = doc.querySelectorAll('span.contratado');
+    return contratados.length;
+}
+
+// Función para hacer scraping de la página de demanda
+async function scrapeDemandData(page) {
+  await page.goto('https://portal.cpevalencia.com/noray/previsionDemanda.jsp', { waitUntil: 'networkidle2' });
+  const html = await page.content();
+  return parseHTML(html);
+}
+
+// Función para hacer scraping de la página de chaparos
+async function scrapeChaparoData(page) {
+  await page.goto('https://portal.cpevalencia.com/noray/chapero.jsp', { waitUntil: 'networkidle2' });
+  const html = await page.content();
+  return parseChaparoHTML(html); // Esta función devuelve solo el número de fijos
+}
+
+
+app.get('/api/demandas', async (req, res) => {
   let browser;
   try {
-    console.log('🔍 Iniciando scraping completo (Secuencial)...');
-    browser = await puppeteer.launch(getBrowserConfig());
+    browser = await puppeteer.launch({ headless: true }); // Asegúrate de usar headless: true en producción
     const page = await browser.newPage();
 
-    await page.setRequestInterception(true);
-    page.on('request', (req) => {
-        if (['image', 'stylesheet', 'font'].includes(req.resourceType())) req.abort();
-        else req.continue();
-    });
+    // Realiza ambas solicitudes de scraping
+    const [demandasData, chaparoData] = await Promise.all([
+      scrapeDemandData(page),
+      scrapeChaparoData(page)
+    ]);
 
-    // --- 1. PREVISIÓN ---
-    await page.goto('https://noray.cpevalencia.com/PrevisionDemanda.asp', { waitUntil: 'domcontentloaded' });
+    // Combina los resultados
+    demandasData.fijos = chaparoData; // Asigna el número de fijos obtenido de la otra página
 
-    const demandasResult = await page.evaluate(() => {
-        const html = document.body.innerHTML;
-        const result = {
-          '08-14': { gruas: 0, coches: 0 },
-          '14-20': { gruas: 0, coches: 0 },
-          '20-02': { gruas: 0, coches: 0 }
-        };
-  
-        // Lógica Grúas
-        const mainTableRegex = /class=(TDazul|TDverde|TDrojo)[^>]*colspan=8/gi;
-        const splitHtml = html.split(mainTableRegex);
-        
-        const findSectionContent = (color) => {
-            const index = splitHtml.indexOf(color);
-            return (index !== -1 && index + 1 < splitHtml.length) ? splitHtml[index + 1] : '';
-        };
-        const extractGruas = (section) => {
-          // CORREGIDO: Buscar GRUAS seguido de <TD> con numero
-          const match = section.match(/GRUAS.*?<TD[^>]*>(\d+)/i);
-          return match ? parseInt(match[1]) : 0;
-        };
-        result['08-14'].gruas = extractGruas(findSectionContent('TDazul'));
-        result['14-20'].gruas = extractGruas(findSectionContent('TDverde'));
-        result['20-02'].gruas = extractGruas(findSectionContent('TDrojo'));
-  
-        // Lógica Coches
-        const extractCoches = (color) => {
-          // CORREGIDO: Regex más permisivo
-          const regex = new RegExp(`class=${color}[^>]*>[\\s\\S]*?<TD[^>]*>(\\d+)&nbsp;C2`, 'i');
-          const match = html.match(regex);
-          return match ? parseInt(match[1]) : 0;
-        };
-        result['08-14'].coches = extractCoches('TDazul');
-        result['14-20'].coches = extractCoches('TDverde');
-        result['20-02'].coches = extractCoches('TDrojo');
-  
-        return result;
-    });
-
-    // --- 2. CHAPERO ---
-    await page.goto('https://noray.cpevalencia.com/Chapero.asp', { waitUntil: 'domcontentloaded' });
-    
-    const fijosResult = await page.evaluate(() => {
-        const html = document.body.innerHTML;
-        // CORREGIDO: Buscar texto específico "No contratado (XXX)"
-        const match = html.match(/No\s+contratado\s*\((\d+)\)/i);
-        if (match) return parseInt(match[1]);
-        
-        // Fallback
-        const bgMatches = html.match(/chapab\.jpg/gi);
-        return bgMatches ? bgMatches.length : 0;
-    });
-
-    await browser.close();
-
-    console.log('✅ Scraping completo:', { demandas: demandasResult, fijos: fijosResult });
-
-    res.json({
-      success: true,
-      timestamp: new Date().toISOString(),
-      demandas: demandasResult,
-      fijos: fijosResult
-    });
+    res.json(demandasData);
 
   } catch (error) {
-    console.error('❌ Error en scraping completo:', error);
-    if (browser) await browser.close();
+    console.error('Error scraping data:', error);
     res.status(500).json({ success: false, error: error.message });
+  } finally {
+    if (browser) {
+      await browser.close();
+    }
   }
 });
 
-app.listen(PORT, () => {
-  console.log(`🚀 Noray Scraper API ejecutándose en puerto ${PORT}`);
+app.listen(port, () => {
+  console.log(`Server running at http://localhost:${port}`);
 });
