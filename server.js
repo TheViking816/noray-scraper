@@ -424,43 +424,66 @@ app.get('/api/all', async (req, res) => {
       console.log('⚠️ Timeout esperando Cloudflare en Chapero, continuando...');
     }
 
-    await page.waitForTimeout(2000);
+    await page.waitForTimeout(3000);
 
-    // Obtener el HTML primero para hacer debug FUERA del evaluate
-    const chaperoHTML = await page.content();
+    // Obtener el HTML completo para analizar
+    const chaperoHTML = await page.evaluate(() => document.documentElement.outerHTML);
 
-    // Debug: verificar si contiene el texto
-    const containsNoContratado = chaperoHTML.includes('No contratado');
-    console.log('🔍 DEBUG Chapero: ¿Contiene "No contratado"?', containsNoContratado);
-
-    // Buscar fragmento
-    const idx = chaperoHTML.indexOf('No contratado');
-    if (idx !== -1) {
-      const fragment = chaperoHTML.substring(idx, Math.min(idx + 150, chaperoHTML.length));
-      console.log('📄 DEBUG Chapero: Fragmento:', fragment);
+    // Debug: buscar tabla LEYENDA
+    const legendMatch = chaperoHTML.match(/<TABLE[^>]*>[\s\S]*?LEYENDA[\s\S]{0,2000}/i);
+    if (legendMatch) {
+      console.log('🔍 Fragmento HTML LEYENDA (primeros 800 chars):', legendMatch[0].substring(0, 800));
+    } else {
+      console.log('⚠️ No se encontró tabla LEYENDA en HTML');
     }
 
-    const fijosResult = await page.evaluate(() => {
-        const html = document.body.innerHTML;
+    // Debug: buscar cualquier mención de "contratado"
+    const contratadoIdx = chaperoHTML.toLowerCase().indexOf('contratado');
+    if (contratadoIdx !== -1) {
+      const fragment = chaperoHTML.substring(Math.max(0, contratadoIdx - 50), Math.min(chaperoHTML.length, contratadoIdx + 200));
+      console.log('📄 Fragmento con "contratado":', fragment);
+    } else {
+      console.log('⚠️ No se encontró la palabra "contratado" en el HTML');
+    }
 
-        // Usar matchAll con regex más flexible
-        const matches = [...html.matchAll(/No\s+contratado\s+\((\d+)\)/gi)];
+    // Intentar extraer fijos con múltiples métodos
+    let fijosResult = 0;
 
-        if (matches.length > 0) {
-          const fijos = parseInt(matches[0][1]);
-          return fijos;
-        }
+    // Método 1: Buscar "No contratado (87)" o variaciones
+    const pattern1 = chaperoHTML.match(/No\s+contratado\s*\((\d+)\)/i);
+    if (pattern1) {
+      fijosResult = parseInt(pattern1[1]);
+      console.log('✅ Método 1 - No contratado:', fijosResult);
+    }
 
-        // Método 2: Contar elementos con background='imagenes/chapab.jpg'
-        const bgMatches = [...html.matchAll(/background='imagenes\/chapab\.jpg'/gi)];
-        if (bgMatches.length > 0) {
-          return bgMatches.length;
-        }
+    // Método 2: Contar backgrounds chapab.jpg
+    if (fijosResult === 0) {
+      const pattern2 = [...chaperoHTML.matchAll(/background\s*=\s*['"']?imagenes\/chapab\.jpg['"']?/gi)];
+      if (pattern2.length > 0) {
+        fijosResult = pattern2.length;
+        console.log('✅ Método 2 - Contar backgrounds chapab.jpg:', fijosResult);
+      }
+    }
 
-        return 0;
-    });
+    // Método 3: Buscar cualquier número entre paréntesis después de "contratado"
+    if (fijosResult === 0) {
+      const pattern3 = chaperoHTML.match(/contratado[^(]*\((\d+)\)/i);
+      if (pattern3) {
+        fijosResult = parseInt(pattern3[1]);
+        console.log('✅ Método 3 - Número después de contratado:', fijosResult);
+      }
+    }
 
-    console.log('✅ Fijos extraídos:', fijosResult);
+    // Método 4: Contar elementos TD con background que contenga "chapab"
+    if (fijosResult === 0) {
+      const pattern4 = [...chaperoHTML.matchAll(/chapab/gi)];
+      if (pattern4.length > 0) {
+        fijosResult = pattern4.length;
+        console.log('✅ Método 4 - Contar "chapab":', fijosResult);
+      }
+    }
+
+    console.log('📊 Fijos final:', fijosResult);
 
     await browser.close();
 
