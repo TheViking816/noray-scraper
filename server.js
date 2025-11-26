@@ -408,34 +408,47 @@ app.get('/api/all', async (req, res) => {
 
     // 2. OBTENER CHAPERO (Reusando la misma página para ahorrar memoria)
     await page.goto('https://noray.cpevalencia.com/Chapero.asp', {
-      waitUntil: 'domcontentloaded',
+      waitUntil: 'networkidle2',
       timeout: 60000
     });
 
-    // Esperar bypass de Cloudflare también en Chapero
+    // Esperar bypass de Cloudflare más agresivamente
     console.log('⏳ Esperando bypass de Cloudflare (Chapero)...');
+
+    // Intentar múltiples estrategias para bypassear Cloudflare
+    let cloudflareBypassSuccessful = false;
+
+    // Estrategia 1: Esperar que desaparezca "Un momento"
     try {
       await page.waitForFunction(
-        () => !document.title.includes('Just a moment'),
+        () => !document.title.includes('Un momento') && !document.title.includes('Just a moment'),
         { timeout: 30000 }
       );
-      console.log('✅ Cloudflare bypass completado (Chapero)');
+      cloudflareBypassSuccessful = true;
+      console.log('✅ Cloudflare bypass completado (por título)');
     } catch (e) {
-      console.log('⚠️ Timeout esperando Cloudflare en Chapero, continuando...');
+      console.log('⚠️ Estrategia 1 falló');
     }
 
-    // Esperar más tiempo y hacer scroll para activar contenido dinámico
-    await page.waitForTimeout(5000);
+    // Estrategia 2: Esperar que aparezca contenido real (tabla o body con contenido)
+    if (!cloudflareBypassSuccessful) {
+      try {
+        await page.waitForFunction(
+          () => {
+            const bodyText = document.body?.innerText || '';
+            return bodyText.length > 1000 && !bodyText.includes('Cloudflare');
+          },
+          { timeout: 30000 }
+        );
+        cloudflareBypassSuccessful = true;
+        console.log('✅ Cloudflare bypass completado (por contenido)');
+      } catch (e) {
+        console.log('⚠️ Estrategia 2 falló');
+      }
+    }
 
-    // Hacer scroll down y up para activar lazy loading
-    await page.evaluate(() => {
-      window.scrollTo(0, document.body.scrollHeight);
-    });
-    await page.waitForTimeout(1000);
-    await page.evaluate(() => {
-      window.scrollTo(0, 0);
-    });
-    await page.waitForTimeout(2000);
+    // Esperar adicional para JavaScript
+    await page.waitForTimeout(8000);
 
     // Obtener el HTML completo para analizar
     const chaperoHTML = await page.evaluate(() => document.documentElement.outerHTML);
