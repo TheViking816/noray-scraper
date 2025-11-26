@@ -27,8 +27,10 @@ app.get('/', (req, res) => {
 });
 
 // Configuración de Puppeteer para Render.com
+// En Render, Chromium puede estar disponible en /usr/bin/google-chrome
+// Si falla, puedes intentar usar puppeteer-core con el Chromium del sistema
 const getBrowserConfig = () => ({
-  headless: 'new',
+  headless: 'new', // Usa 'new' para el modo headless moderno
   args: [
     '--no-sandbox',
     '--disable-setuid-sandbox',
@@ -36,7 +38,11 @@ const getBrowserConfig = () => ({
     '--disable-accelerated-2d-canvas',
     '--no-first-run',
     '--no-zygote',
-    '--disable-gpu'
+    '--disable-gpu',
+    '--disable-extensions',
+    '--disable-background-timer-throttling',
+    '--disable-backgrounding-occluded-windows',
+    '--disable-renderer-backgrounding'
   ]
   // Puppeteer descargará y usará su propio Chromium
 });
@@ -62,70 +68,48 @@ app.get('/api/prevision', async (req, res) => {
         '20-02': { gruas: 0, coches: 0 }
       };
 
-      // Función para extraer grúas de una sección específica del HTML
-      const extractGruas = (seccionHTML) => {
-        // Buscar la fila que contiene "&nbspGRUAS" y obtener el número de la celda siguiente
+      // Función para extraer grúas de una sección
+      const extractGruas = (seccion) => {
+        if (!seccion) return 0;
+        // Buscar la fila específica que contiene "&nbspGRUAS" y el número en la celda siguiente
         // Patrón: <TD align=left nowrap>&nbspGRUAS<TD align=center nowrap>(número)<TD align=center nowrap>
-        const match = seccionHTML.match(/&nbspGRUAS<TD[^>]*align=center[^>]*nowrap[^>]*>(\d+)<TD/);
+        const match = seccion.match(/&nbspGRUAS<TD[^>]*align=center[^>]*nowrap[^>]*>(\d+)<TD/);
         return match ? parseInt(match[1], 10) : 0;
       };
 
-      // Función para extraer coches (ROLON de GRUPO III) de una sección específica del HTML
-      const extractCoches = (seccionHTML) => {
-        // Buscar la fila que contiene "&nbspGRUPO III"
-        // La estructura es: [0]Nombre [1]CONT [2]LO-LO [3]GRANEL [4]ROLON [5]R/E [6]ASIGNADOS
-        // Patrón: <TD align=left nowrap>&nbspGRUPO III<TD ...>(n1)<TD ...>(n2)<TD ...>(n3)<TD ...>(n4)<TD ...>(n5)<Th ...>(n6)
-        const grupoIIIStartIndex = seccionHTML.indexOf('&nbspGRUPO III');
-        if (grupoIIIStartIndex === -1) return 0; // No encontramos la fila
+      // Función para extraer coches (C2?) de la *otra* tabla
+      const extractCochesFromOtherTable = (html) => {
+        const coches = { '14-20': 0, '20-02': 0 }; // Solo estos turnos tienen coches en la tabla de C2?
 
-        const substring = seccionHTML.substring(grupoIIIStartIndex);
-        // Extraer los números de las celdas <TD> o <Th> siguientes
-        // Usamos una expresión regular global para encontrar todas las coincidencias de números en celdas
-        const numbers = [];
-        const regex = /<T[DH][^>]*>(\d+)<\/T[DH]>/g;
-        let match;
-        let searchStartIndex = 0;
-
-        // Saltamos las primeras 4 coincidencias (Nombre, CONT, LO-LO, GRANEL)
-        for (let i = 0; i < 4; i++) {
-          match = regex.exec(substring);
-          if (!match) break;
+        // Buscar fila con class=TDverde (14-20 H) y número antes de C2?
+        // Patrón: class=TDverde[^>]*>14\/20 H<TD[^>]*>(\d+)\s*C2\?
+        const match1420 = html.match(/class=TDverde[^>]*>14\/20 H<TD[^>]*>(\d+)\s*C2\?/);
+        if (match1420) {
+            coches['14-20'] = parseInt(match1420[1], 10);
         }
 
-        // La quinta coincidencia es ROLON (índice 4 en la fila GRUPO III, índice 0 después de saltar 4)
-        match = regex.exec(substring);
-        if (match) {
-            numbers.push(parseInt(match[1], 10));
+        // Buscar fila con class=TDrojo (20-02 H) y número antes de C2?
+        // Patrón: class=TDrojo[^>]*>20\/02 H<TD[^>]*>(\d+)\s*C2\?
+        const match2002 = html.match(/class=TDrojo[^>]*>20\/02 H<TD[^>]*>(\d+)\s*C2\?/);
+        if (match2002) {
+            coches['20-02'] = parseInt(match2002[1], 10);
         }
 
-        // La sexta coincidencia es R/E
-        match = regex.exec(substring);
-        if (match) {
-            numbers.push(parseInt(match[1], 10));
-        }
-
-        // La séptima coincidencia es ASIGNADOS (Th)
-        match = regex.exec(substring);
-        if (match) {
-            numbers.push(parseInt(match[1], 10));
-        }
-
-        // El valor de ROLON es el primer número encontrado (después de saltar nombre y 3 categorías)
-        return numbers.length > 0 ? numbers[0] : 0;
+        return coches;
       };
 
-      // Extraer secciones por jornada basándonos en las clases de color
       const html = document.body.innerHTML;
 
+      // Extraer secciones por jornada basándonos en las clases de color TDazul, TDverde, TDrojo
       // Encontrar índices de las líneas de hora (TDazul, TDverde, TDrojo)
       const idx0814Start = html.indexOf('<TD align=left nowrap colspan=8 class=TDazul>');
       const idx1420Start = html.indexOf('<TD align=left nowrap colspan=8 class=TDverde>');
       const idx2002Start = html.indexOf('<TD align=left nowrap colspan=8 class=TDrojo>');
 
-      // Encontrar el final de la sección de 08-14 (inicio de 14-20 o inicio de 14-20 H)
+      // Calcular límites de secciones
       let idx0814End = idx1420Start;
       if (idx0814End === -1) {
-          // Si no hay 14-20, buscar el siguiente TDazul o TDrojo o el final de la tabla
+          // Si no hay 14-20, buscar el siguiente TDrojo o el final de la tabla
           idx0814End = html.indexOf('<TD align=left nowrap colspan=8 class=TDrojo>');
           if (idx0814End === -1) {
               const tableEnd = html.indexOf('</TABLE>', idx0814Start);
@@ -133,37 +117,42 @@ app.get('/api/prevision', async (req, res) => {
           }
       }
 
-      // Encontrar el final de la sección de 14-20 (inicio de 20-02 o inicio de 20-02 H)
       let idx1420End = idx2002Start;
       if (idx1420End === -1) {
+          // Si no hay 20-02, buscar el final de la tabla
           const tableEnd = html.indexOf('</TABLE>', idx1420Start);
           idx1420End = tableEnd !== -1 ? tableEnd : html.length;
       }
 
-      // Encontrar el final de la sección de 20-02
       let idx2002End = html.indexOf('</TABLE>', idx2002Start);
       if (idx2002End === -1) {
           idx2002End = html.length;
       }
 
-
+      // Extraer grúas de cada sección
       if (idx0814Start !== -1 && idx0814End !== -1) {
         const seccion0814 = html.substring(idx0814Start, idx0814End);
         result['08-14'].gruas = extractGruas(seccion0814);
-        result['08-14'].coches = extractCoches(seccion0814); // Debería ser 0
+        // Coches para 08-14 es 0, no aparece en la tabla de C2?
       }
 
       if (idx1420Start !== -1 && idx1420End !== -1) {
         const seccion1420 = html.substring(idx1420Start, idx1420End);
         result['14-20'].gruas = extractGruas(seccion1420);
-        result['14-20'].coches = extractCoches(seccion1420); // Debería ser 3 (R/E)
+        // Coches para 14-20 se extrae de la otra tabla
       }
 
       if (idx2002Start !== -1 && idx2002End !== -1) {
         const seccion2002 = html.substring(idx2002Start, idx2002End);
         result['20-02'].gruas = extractGruas(seccion2002);
-        result['20-02'].coches = extractCoches(seccion2002); // Debería ser 8 (ROLON)
+        // Coches para 20-02 se extrae de la otra tabla
       }
+
+      // Extraer coches de la *otra* tabla que no depende de secciones de turno
+      const cochesOtraTabla = extractCochesFromOtherTable(html);
+      result['14-20'].coches = cochesOtraTabla['14-20'];
+      result['20-02'].coches = cochesOtraTabla['20-02'];
+      // result['08-14'].coches ya es 0
 
       return result;
     });
@@ -179,7 +168,13 @@ app.get('/api/prevision', async (req, res) => {
 
   } catch (error) {
     console.error('❌ Error en scraping de previsión:', error);
-    if (browser) await browser.close();
+    if (browser) {
+        try {
+            await browser.close();
+        } catch (closeError) {
+            console.error('Error cerrando el navegador en prevision:', closeError);
+        }
+    }
     res.status(500).json({
       success: false,
       error: error.message,
@@ -208,7 +203,7 @@ app.get('/api/chapero', async (req, res) => {
       // Método 1: Buscar "No contratado (XXX)"
       const match = html.match(/No\s+contratado\s+\((\d+)\)/i);
       if (match) {
-        return parseInt(match[1]) || 0;
+        return parseInt(match[1], 10) || 0;
       }
 
       // Método 2: Contar elementos con background='imagenes/chapab.jpg'
@@ -227,7 +222,13 @@ app.get('/api/chapero', async (req, res) => {
 
   } catch (error) {
     console.error('❌ Error en scraping de chapero:', error);
-    if (browser) await browser.close();
+    if (browser) {
+        try {
+            await browser.close();
+        } catch (closeError) {
+            console.error('Error cerrando el navegador en chapero:', closeError);
+        }
+    }
     res.status(500).json({
       success: false,
       error: error.message,
@@ -265,52 +266,27 @@ app.get('/api/all', async (req, res) => {
             '20-02': { gruas: 0, coches: 0 }
           };
 
-          const extractGruas = (seccionHTML) => {
-            const match = seccionHTML.match(/&nbspGRUAS<TD[^>]*align=center[^>]*nowrap[^>]*>(\d+)<TD/);
+          const extractGruas = (seccion) => {
+            if (!seccion) return 0;
+            const match = seccion.match(/&nbspGRUAS<TD[^>]*align=center[^>]*nowrap[^>]*>(\d+)<TD/);
             return match ? parseInt(match[1], 10) : 0;
           };
 
-          const extractCoches = (seccionHTML) => {
-            const grupoIIIStartIndex = seccionHTML.indexOf('&nbspGRUPO III');
-            if (grupoIIIStartIndex === -1) return 0;
+          const extractCochesFromOtherTable = (html) => {
+            const coches = { '14-20': 0, '20-02': 0 };
 
-            const substring = seccionHTML.substring(grupoIIIStartIndex);
-            const numbers = [];
-            const regex = /<T[DH][^>]*>(\d+)<\/T[DH]>/g;
-            let match;
-            let searchStartIndex = 0;
-
-            for (let i = 0; i < 4; i++) {
-              match = regex.exec(substring);
-              if (!match) break;
+            const match1420 = html.match(/class=TDverde[^>]*>14\/20 H<TD[^>]*>(\d+)\s*C2\?/);
+            if (match1420) {
+                coches['14-20'] = parseInt(match1420[1], 10);
             }
 
-            match = regex.exec(substring);
-            if (match) { numbers.push(parseInt(match[1], 10)); } // ROLON o R/E
-            match = regex.exec(substring);
-            if (match) { numbers.push(parseInt(match[1], 10)); } // R/E o ASIGNADOS
-            match = regex.exec(substring);
-            if (match) { numbers.push(parseInt(match[1], 10)); } // ASIGNADOS
-
-            // Para 14-20, es R/E (índice 1 después de saltar 4), para 20-02 es ROLON (índice 0)
-            // La lógica original buscaba ROLON (índice 0). Revisamos:
-            // 14-20: GRUPO III <TD>17</TD><TD></TD><TD></TD><TD>3</TD><TD>1</TD> -> ROLON=3, R/E=1
-            // 20-02: GRUPO III <TD>18</TD><TD></TD><TD></TD><TD>8</TD><TD></TD> -> ROLON=8, R/E=0
-            // La columna 4 (índice 3) es ROLON, la 5 (índice 4) es R/E.
-            // Nuestra lógica de salto de 4 y tomar el siguiente debería coger ROLON.
-            // Si la lógica de salto de 4 no es robusta, usamos una regex más específica.
-            // Busquemos específicamente GRUPO III y luego el 4to y 5to número.
-            const numsRegex = /<TD[^>]*align=center[^>]*nowrap[^>]*>(\d*)<TD[^>]*align=center[^>]*nowrap[^>]*>(\d*)<TD[^>]*align=center[^>]*nowrap[^>]*>(\d*)<TD[^>]*align=center[^>]*nowrap[^>]*>(\d*)<TD[^>]*align=center[^>]*nowrap[^>]*>(\d*)/;
-
-            const grupoMatch = seccionHTML.match(/&nbspGRUPO III<TD[^>]*align=center[^>]*nowrap[^>]*>(\d*)<TD[^>]*align=center[^>]*nowrap[^>]*>(\d*)<TD[^>]*align=center[^>]*nowrap[^>]*>(\d*)<TD[^>]*align=center[^>]*nowrap[^>]*>(\d*)<TD[^>]*align=center[^>]*nowrap[^>]*>(\d*)<Th/);
-            if (grupoMatch) {
-                // grupoMatch[1] = CONT, [2] = LO-LO, [3] = GRANEL, [4] = ROLON, [5] = R/E
-                // Devolvemos ROLON ([4])
-                return parseInt(grupoMatch[4]) || 0;
+            const match2002 = html.match(/class=TDrojo[^>]*>20\/02 H<TD[^>]*>(\d+)\s*C2\?/);
+            if (match2002) {
+                coches['20-02'] = parseInt(match2002[1], 10);
             }
-            return 0; // Si no encuentra la fila o la estructura no coincide
+
+            return coches;
           };
-
 
           const html = document.body.innerHTML;
           const idx0814Start = html.indexOf('<TD align=left nowrap colspan=8 class=TDazul>');
@@ -340,20 +316,21 @@ app.get('/api/all', async (req, res) => {
           if (idx0814Start !== -1 && idx0814End !== -1) {
             const seccion0814 = html.substring(idx0814Start, idx0814End);
             result['08-14'].gruas = extractGruas(seccion0814);
-            result['08-14'].coches = extractCoches(seccion0814); // 0
           }
 
           if (idx1420Start !== -1 && idx1420End !== -1) {
             const seccion1420 = html.substring(idx1420Start, idx1420End);
             result['14-20'].gruas = extractGruas(seccion1420);
-            result['14-20'].coches = extractCoches(seccion1420); // 3 (R/E)
           }
 
           if (idx2002Start !== -1 && idx2002End !== -1) {
             const seccion2002 = html.substring(idx2002Start, idx2002End);
             result['20-02'].gruas = extractGruas(seccion2002);
-            result['20-02'].coches = extractCoches(seccion2002); // 8 (ROLON)
           }
+
+          const cochesOtraTabla = extractCochesFromOtherTable(html);
+          result['14-20'].coches = cochesOtraTabla['14-20'];
+          result['20-02'].coches = cochesOtraTabla['20-02'];
 
           return result;
         });
@@ -369,7 +346,7 @@ app.get('/api/all', async (req, res) => {
         return await page2.evaluate(() => {
           const html = document.body.innerHTML;
           const match = html.match(/No\s+contratado\s+\((\d+)\)/i);
-          if (match) return parseInt(match[1]) || 0;
+          if (match) return parseInt(match[1], 10) || 0;
 
           const bgMatches = html.match(/background='imagenes\/chapab\.jpg'/gi);
           return bgMatches ? bgMatches.length : 0;
@@ -390,7 +367,13 @@ app.get('/api/all', async (req, res) => {
 
   } catch (error) {
     console.error('❌ Error en scraping completo:', error);
-    if (browser) await browser.close();
+    if (browser) {
+        try {
+            await browser.close();
+        } catch (closeError) {
+            console.error('Error cerrando el navegador en all:', closeError);
+        }
+    }
     res.status(500).json({
       success: false,
       error: error.message,
