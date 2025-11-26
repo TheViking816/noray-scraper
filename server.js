@@ -106,20 +106,20 @@ app.get('/api/prevision', async (req, res) => {
 
       const html = document.body.innerHTML;
 
-      // Extraer TODAS las grúas del HTML en orden de aparición
-      const gruasMatches = [];
-      const gruasRegex = />&nbsp;?GRUAS<TD[^>]*>(\d+)/gi;
-      let match;
-      while ((match = gruasRegex.exec(html)) !== null) {
-        gruasMatches.push({
-          valor: parseInt(match[1]),
-          posicion: match.index
-        });
+      // Extraer TODAS las grúas usando el MISMO regex que funciona fuera
+      const gruasMatches = [...html.matchAll(/GRUAS.*?<Th[^>]*>(\d+)/gis)];
+
+      // Asignar grúas directamente por orden
+      if (gruasMatches.length >= 3) {
+        result['08-14'].gruas = parseInt(gruasMatches[0][1]);
+        result['14-20'].gruas = parseInt(gruasMatches[1][1]);
+        result['20-02'].gruas = parseInt(gruasMatches[2][1]);
       }
 
       // Extraer TODOS los coches (patrón C2)
       const cochesMatches = [];
       const cochesRegex = /(?:(\d+)|>)&nbsp;C2/gi;
+      let match;
       while ((match = cochesRegex.exec(html)) !== null) {
         cochesMatches.push({
           valor: match[1] ? parseInt(match[1]) : 0,
@@ -131,14 +131,6 @@ app.get('/api/prevision', async (req, res) => {
       const tdazulIdx = html.search(/class[^>]*TDazul/i);
       const tdverdeIdx = html.search(/class[^>]*TDverde/i);
       const tdrojoIdx = html.search(/class[^>]*TDrojo/i);
-
-      // Asignar grúas según el orden de aparición
-      if (gruasMatches.length >= 3) {
-        gruasMatches.sort((a, b) => a.posicion - b.posicion);
-        result['08-14'].gruas = gruasMatches[0].valor;
-        result['14-20'].gruas = gruasMatches[1].valor;
-        result['20-02'].gruas = gruasMatches[2].valor;
-      }
 
       // Asignar coches según el orden de aparición
       if (cochesMatches.length > 0) {
@@ -351,23 +343,22 @@ app.get('/api/all', async (req, res) => {
           // Usar document.body.innerHTML
           const html = document.body.innerHTML;
 
-          // Extraer TODAS las grúas del HTML en orden de aparición
-          const gruasMatches = [];
-          const gruasRegex = />&nbsp;?GRUAS<TD[^>]*>(\d+)/gi;
-          let match;
-          while ((match = gruasRegex.exec(html)) !== null) {
-            gruasMatches.push({
-              valor: parseInt(match[1]),
-              posicion: match.index
-            });
-          }
+          // Extraer TODAS las grúas usando el MISMO regex que funciona fuera
+          const gruasMatches = [...html.matchAll(/GRUAS.*?<Th[^>]*>(\d+)/gis)];
 
-          console.log('DEBUG: Grúas encontradas:', gruasMatches);
+          console.log('DEBUG: Grúas encontradas:', gruasMatches.length);
+
+          // Asignar grúas directamente por orden
+          if (gruasMatches.length >= 3) {
+            result['08-14'].gruas = parseInt(gruasMatches[0][1]);
+            result['14-20'].gruas = parseInt(gruasMatches[1][1]);
+            result['20-02'].gruas = parseInt(gruasMatches[2][1]);
+          }
 
           // Extraer TODOS los coches (patrón C2)
           const cochesMatches = [];
-          // Buscar todas las apariciones de C2 con o sin número
           const cochesRegex = /(?:(\d+)|>)&nbsp;C2/gi;
+          let match;
           while ((match = cochesRegex.exec(html)) !== null) {
             cochesMatches.push({
               valor: match[1] ? parseInt(match[1]) : 0,
@@ -375,31 +366,14 @@ app.get('/api/all', async (req, res) => {
             });
           }
 
-          console.log('DEBUG: Coches encontrados:', cochesMatches);
+          console.log('DEBUG: Coches encontrados:', cochesMatches.length);
 
           // Buscar las posiciones de los marcadores de turno
           const tdazulIdx = html.search(/class[^>]*TDazul/i);
           const tdverdeIdx = html.search(/class[^>]*TDverde/i);
           const tdrojoIdx = html.search(/class[^>]*TDrojo/i);
 
-          console.log('DEBUG: Posiciones turnos:', { tdazulIdx, tdverdeIdx, tdrojoIdx });
-
-          // Asignar grúas según el orden de aparición
-          // Primera GRUAS después de TDazul = 08-14
-          // Segunda GRUAS después de TDverde = 14-20
-          // Tercera GRUAS después de TDrojo = 20-02
-
-          if (gruasMatches.length >= 3) {
-            // Ordenar por posición para asegurar el orden correcto
-            gruasMatches.sort((a, b) => a.posicion - b.posicion);
-
-            result['08-14'].gruas = gruasMatches[0].valor;
-            result['14-20'].gruas = gruasMatches[1].valor;
-            result['20-02'].gruas = gruasMatches[2].valor;
-          }
-
           // Asignar coches según el orden de aparición
-          // Buscar coches después de cada marcador de turno
           if (cochesMatches.length > 0) {
             cochesMatches.sort((a, b) => a.posicion - b.posicion);
 
