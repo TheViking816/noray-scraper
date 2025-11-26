@@ -429,8 +429,20 @@ app.get('/api/all', async (req, res) => {
     const fijosResult = await page.evaluate(() => {
         const html = document.body.innerHTML;
 
-        // Usar matchAll para buscar "No contratado (número)"
+        // Debug: buscar si existe el texto "No contratado"
+        const containsNoContratado = html.includes('No contratado');
+        console.log('DEBUG: ¿Contiene "No contratado"?', containsNoContratado);
+
+        // Buscar el fragmento de HTML alrededor de "No contratado"
+        const idx = html.indexOf('No contratado');
+        if (idx !== -1) {
+          const fragment = html.substring(idx, idx + 100);
+          console.log('DEBUG: Fragmento encontrado:', fragment);
+        }
+
+        // Usar matchAll con regex más flexible
         const matches = [...html.matchAll(/No\s+contratado\s+\((\d+)\)/gi)];
+        console.log('DEBUG: Matches encontrados:', matches.length);
 
         if (matches.length > 0) {
           const fijos = parseInt(matches[0][1]);
@@ -440,8 +452,10 @@ app.get('/api/all', async (req, res) => {
 
         // Método 2: Contar elementos con background='imagenes/chapab.jpg'
         const bgMatches = [...html.matchAll(/background='imagenes\/chapab\.jpg'/gi)];
+        console.log('DEBUG: chapab.jpg encontrados:', bgMatches.length);
+
         if (bgMatches.length > 0) {
-          console.log('DEBUG Chapero: Contando chapab.jpg:', bgMatches.length);
+          console.log('DEBUG Chapero: Usando método 2 - chapab.jpg:', bgMatches.length);
           return bgMatches.length;
         }
 
