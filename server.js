@@ -106,44 +106,60 @@ app.get('/api/prevision', async (req, res) => {
 
       const extractGruas = (seccion) => {
         if (!seccion) return 0;
-        const match = seccion.match(/GRUAS.*?<Th[^>]*>(\d+)/is);
+        // Buscar la línea de GRUAS dentro de la sección
+        // Patrón: >&nbspGRUAS<TD align=center nowrap>NUMERO<
+        const match = seccion.match(/>&nbspGRUAS<TD align=center nowrap>(\d+)</i);
         return match ? parseInt(match[1]) : 0;
       };
 
       const extractCoches = (seccion) => {
         if (!seccion) return 0;
-        const grupoMatch = seccion.match(/GRUPO III.*?(?=<TR|<\/TABLE)/is);
-        if (!grupoMatch) return 0;
 
-        const numeros = [];
-        const regex = /<TD[^>]*align=center[^>]*nowrap[^>]*>(\d*)/gi;
-        let m;
-        while ((m = regex.exec(grupoMatch[0])) !== null && numeros.length < 5) {
-          numeros.push(parseInt(m[1]) || 0);
+        // Buscar el patrón específico de coches en las filas de equipos
+        // Patrón 1: "3&nbsp;C2" (con número)
+        // Patrón 2: "&nbsp;C2" (sin número = 0)
+
+        // Primero buscar si hay número antes de &nbsp;C2
+        const cochesConNumero = seccion.match(/(\d+)&nbsp;C2/i);
+        if (cochesConNumero) {
+          return parseInt(cochesConNumero[1]);
         }
-        return numeros.length >= 4 ? numeros[3] : 0;
+
+        // Si solo hay &nbsp;C2 sin número delante, son 0 coches
+        const cochesSinNumero = seccion.match(/>&nbsp;C2/i);
+        if (cochesSinNumero) {
+          return 0;
+        }
+
+        return 0;
       };
 
       const html = document.body.innerHTML;
-      const idx0814Start = html.indexOf('TDazul');
-      const idx1420Start = html.indexOf('TDverde');
-      const idx2002Start = html.indexOf('TDrojo');
 
-      if (idx0814Start !== -1 && idx1420Start !== -1) {
-        const seccion0814 = html.substring(idx0814Start, idx1420Start);
+      // Buscar los marcadores de cada turno por su clase CSS
+      const idx0814 = html.indexOf('class=TDazul');
+      const idx1420 = html.indexOf('class=TDverde');
+      const idx2002 = html.indexOf('class=TDrojo');
+
+      // Extraer sección 08-14
+      if (idx0814 !== -1 && idx1420 !== -1) {
+        const seccion0814 = html.substring(idx0814, idx1420);
         result['08-14'].gruas = extractGruas(seccion0814);
         result['08-14'].coches = extractCoches(seccion0814);
       }
 
-      if (idx1420Start !== -1 && idx2002Start !== -1) {
-        const seccion1420 = html.substring(idx1420Start, idx2002Start);
+      // Extraer sección 14-20
+      if (idx1420 !== -1 && idx2002 !== -1) {
+        const seccion1420 = html.substring(idx1420, idx2002);
         result['14-20'].gruas = extractGruas(seccion1420);
         result['14-20'].coches = extractCoches(seccion1420);
       }
 
-      if (idx2002Start !== -1) {
-        const idxEnd = html.indexOf('</TABLE>', idx2002Start);
-        const seccion2002 = html.substring(idx2002Start, idxEnd !== -1 ? idxEnd : html.length);
+      // Extraer sección 20-02
+      if (idx2002 !== -1) {
+        const equiposPrevistosIdx = html.indexOf('Equipos Previstos', idx2002);
+        const endIdx = equiposPrevistosIdx !== -1 ? equiposPrevistosIdx : html.length;
+        const seccion2002 = html.substring(idx2002, endIdx);
         result['20-02'].gruas = extractGruas(seccion2002);
         result['20-02'].coches = extractCoches(seccion2002);
       }
@@ -335,96 +351,73 @@ app.get('/api/all', async (req, res) => {
 
           const extractGruas = (seccion) => {
             if (!seccion) return 0;
-            // Buscar GRUAS seguido de un número en una celda TH
-            const match = seccion.match(/GRUAS.*?<Th[^>]*>(\d+)/is);
+            // Buscar la línea de GRUAS dentro de la sección
+            // Patrón: >&nbspGRUAS<TD align=center nowrap>NUMERO<
+            const match = seccion.match(/>&nbspGRUAS<TD align=center nowrap>(\d+)</i);
             return match ? parseInt(match[1]) : 0;
           };
 
           const extractCoches = (seccion) => {
             if (!seccion) return 0;
 
-            // Buscar el patrón: [número]&nbsp;C2
-            // Ejemplo: "18&nbsp;C2" o ">3&nbsp;C2"
-            const cochesMatch = seccion.match(/>(\d+)&nbsp;C2/i);
+            // Buscar el patrón específico de coches en las filas de equipos
+            // Patrón 1: "3&nbsp;C2" (con número)
+            // Patrón 2: "&nbsp;C2" (sin número = 0)
 
-            if (cochesMatch) {
-              console.log('DEBUG extractCoches: Encontrado patrón C2:', cochesMatch[0], 'Número:', cochesMatch[1]);
-              return parseInt(cochesMatch[1]);
+            // Primero buscar si hay número antes de &nbsp;C2
+            const cochesConNumero = seccion.match(/(\d+)&nbsp;C2/i);
+            if (cochesConNumero) {
+              console.log('DEBUG extractCoches: Encontrado coches con número:', cochesConNumero[1]);
+              return parseInt(cochesConNumero[1]);
             }
 
-            console.log('DEBUG extractCoches: No se encontró patrón [número]&nbsp;C2');
+            // Si solo hay &nbsp;C2 sin número delante, son 0 coches
+            const cochesSinNumero = seccion.match(/>&nbsp;C2/i);
+            if (cochesSinNumero) {
+              console.log('DEBUG extractCoches: Encontrado &nbsp;C2 sin número = 0 coches');
+              return 0;
+            }
+
+            console.log('DEBUG extractCoches: No se encontró patrón C2');
             return 0;
           };
 
           // Usar document.body.innerHTML
           const html = document.body.innerHTML;
 
-          // NUEVA ESTRATEGIA: Buscar cada turno en su propia fila
-          // Según tu ejemplo: <TD class=TDazul>&nbsp08/14 H<TD>NÚMERO&nbsp;C2
+          // Buscar los marcadores de cada turno por su clase CSS
+          // class=TDazul = 08-14 H, class=TDverde = 14-20 H, class=TDrojo = 20-02 H
+          const idx0814 = html.indexOf('class=TDazul');
+          const idx1420 = html.indexOf('class=TDverde');
+          const idx2002 = html.indexOf('class=TDrojo');
 
-          // Buscar fila completa de 08-14 (TDazul)
-          const row0814Match = html.match(/<TR[^>]*>.*?TDazul.*?08\/14.*?<\/TR>/is);
-          console.log('DEBUG: row0814Match encontrado?', !!row0814Match);
-          if (row0814Match) {
-            const row0814 = row0814Match[0];
-            console.log('DEBUG 08-14 row content:', row0814.substring(0, 200));
-            result['08-14'].gruas = extractGruas(row0814);
-            result['08-14'].coches = extractCoches(row0814);
-            console.log('DEBUG 08-14 row:', { gruas: result['08-14'].gruas, coches: result['08-14'].coches });
+          console.log('DEBUG indices:', { idx0814, idx1420, idx2002 });
+
+          // Extraer sección 08-14
+          if (idx0814 !== -1 && idx1420 !== -1) {
+            const seccion0814 = html.substring(idx0814, idx1420);
+            result['08-14'].gruas = extractGruas(seccion0814);
+            result['08-14'].coches = extractCoches(seccion0814);
+            console.log('DEBUG 08-14:', result['08-14']);
           }
 
-          // Buscar fila completa de 14-20 (TDverde)
-          const row1420Match = html.match(/<TR[^>]*>.*?TDverde.*?14\/20.*?<\/TR>/is);
-          console.log('DEBUG: row1420Match encontrado?', !!row1420Match);
-          if (row1420Match) {
-            const row1420 = row1420Match[0];
-            console.log('DEBUG 14-20 row content:', row1420.substring(0, 200));
-            result['14-20'].gruas = extractGruas(row1420);
-            result['14-20'].coches = extractCoches(row1420);
-            console.log('DEBUG 14-20 row:', { gruas: result['14-20'].gruas, coches: result['14-20'].coches });
+          // Extraer sección 14-20
+          if (idx1420 !== -1 && idx2002 !== -1) {
+            const seccion1420 = html.substring(idx1420, idx2002);
+            result['14-20'].gruas = extractGruas(seccion1420);
+            result['14-20'].coches = extractCoches(seccion1420);
+            console.log('DEBUG 14-20:', result['14-20']);
           }
 
-          // Buscar fila completa de 20-02 (TDrojo)
-          const row2002Match = html.match(/<TR[^>]*>.*?TDrojo.*?20\/02.*?<\/TR>/is);
-          console.log('DEBUG: row2002Match encontrado?', !!row2002Match);
-          if (row2002Match) {
-            const row2002 = row2002Match[0];
-            console.log('DEBUG 20-02 row content:', row2002.substring(0, 200));
-            result['20-02'].gruas = extractGruas(row2002);
-            result['20-02'].coches = extractCoches(row2002);
-            console.log('DEBUG 20-02 row:', { gruas: result['20-02'].gruas, coches: result['20-02'].coches });
-          }
-
-          // FALLBACK: Si las filas no funcionaron, buscar por secciones
-          // Pero primero verificar que realmente necesitamos el fallback
-          const needsFallback = result['08-14'].gruas === 0 && result['14-20'].gruas === 0 && result['20-02'].gruas === 0;
-
-          if (needsFallback) {
-            console.log('DEBUG: Usando fallback de secciones');
-            const idx0814Start = html.indexOf('class="TDazul"') > -1 ? html.indexOf('class="TDazul"') : html.indexOf('TDazul');
-            const idx1420Start = html.indexOf('class="TDverde"') > -1 ? html.indexOf('class="TDverde"') : html.indexOf('TDverde');
-            const idx2002Start = html.indexOf('class="TDrojo"') > -1 ? html.indexOf('class="TDrojo"') : html.indexOf('TDrojo');
-
-            console.log('DEBUG indices:', { idx0814Start, idx1420Start, idx2002Start });
-
-            if (idx0814Start !== -1) {
-              const endIdx = idx1420Start !== -1 ? idx1420Start : (idx2002Start !== -1 ? idx2002Start : html.length);
-              const seccion0814 = html.substring(idx0814Start, endIdx);
-              result['08-14'].gruas = extractGruas(seccion0814);
-            }
-
-            if (idx1420Start !== -1) {
-              const endIdx = idx2002Start !== -1 ? idx2002Start : html.length;
-              const seccion1420 = html.substring(idx1420Start, endIdx);
-              result['14-20'].gruas = extractGruas(seccion1420);
-            }
-
-            if (idx2002Start !== -1) {
-              const endTableIdx = html.indexOf('</TABLE>', idx2002Start);
-              const endIdx = endTableIdx !== -1 ? endTableIdx : html.length;
-              const seccion2002 = html.substring(idx2002Start, endIdx);
-              result['20-02'].gruas = extractGruas(seccion2002);
-            }
+          // Extraer sección 20-02
+          if (idx2002 !== -1) {
+            // Buscar el final de la tabla de equipos para esta sección
+            const equiposPrevistosIdx = html.indexOf('Equipos Previstos', idx2002);
+            const endIdx = equiposPrevistosIdx !== -1 ? equiposPrevistosIdx : html.length;
+            const seccion2002 = html.substring(idx2002, endIdx);
+            result['20-02'].gruas = extractGruas(seccion2002);
+            result['20-02'].coches = extractCoches(seccion2002);
+            console.log('DEBUG 20-02:', result['20-02']);
           }
 
           return result;
@@ -453,30 +446,23 @@ app.get('/api/all', async (req, res) => {
     const fijosResult = await page.evaluate(() => {
         const html = document.body.innerHTML;
 
-        // Buscar "No contratado (número)" con diferentes variaciones
-        // Patrón exacto del HTML: No contratado (103)
-        const patterns = [
-          /No\s+contratado\s+\((\d+)\)/i,
-          /No contratado\s*\((\d+)\)/i,
-          />No\s+contratado\s+\((\d+)\)</i
-        ];
-
-        for (const pattern of patterns) {
-          const match = html.match(pattern);
-          if (match) {
-            console.log('DEBUG Chapero: Encontrado con patrón', pattern, '- Valor:', match[1]);
-            return parseInt(match[1]);
-          }
+        // Método 1: Buscar "No contratado (número)" - Este es el más confiable
+        // El patrón en el HTML es: "No contratado (87)&nbsp"
+        const match = html.match(/No\s*contratado\s*\((\d+)\)/i);
+        if (match) {
+          console.log('DEBUG Chapero: Método 1 - No contratado:', match[1]);
+          return parseInt(match[1]) || 0;
         }
 
-        // Fallback: Contar imágenes chapab.jpg
+        // Método 2: Contar elementos con background='imagenes/chapab.jpg'
+        // Esto cuenta los elementos con clase nocontratado
         const bgMatches = html.match(/background='imagenes\/chapab\.jpg'/gi);
         if (bgMatches) {
-          console.log('DEBUG Chapero: Fallback - Contando chapab.jpg:', bgMatches.length);
+          console.log('DEBUG Chapero: Método 2 - Contando chapab.jpg:', bgMatches.length);
           return bgMatches.length;
         }
 
-        console.log('DEBUG Chapero: No se encontraron fijos. HTML snippet:', html.substring(0, 500));
+        console.log('DEBUG Chapero: No se encontraron fijos no contratados');
         return 0;
     });
 
