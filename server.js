@@ -426,42 +426,41 @@ app.get('/api/all', async (req, res) => {
 
     await page.waitForTimeout(2000);
 
+    // Obtener el HTML primero para hacer debug FUERA del evaluate
+    const chaperoHTML = await page.content();
+
+    // Debug: verificar si contiene el texto
+    const containsNoContratado = chaperoHTML.includes('No contratado');
+    console.log('🔍 DEBUG Chapero: ¿Contiene "No contratado"?', containsNoContratado);
+
+    // Buscar fragmento
+    const idx = chaperoHTML.indexOf('No contratado');
+    if (idx !== -1) {
+      const fragment = chaperoHTML.substring(idx, Math.min(idx + 150, chaperoHTML.length));
+      console.log('📄 DEBUG Chapero: Fragmento:', fragment);
+    }
+
     const fijosResult = await page.evaluate(() => {
         const html = document.body.innerHTML;
 
-        // Debug: buscar si existe el texto "No contratado"
-        const containsNoContratado = html.includes('No contratado');
-        console.log('DEBUG: ¿Contiene "No contratado"?', containsNoContratado);
-
-        // Buscar el fragmento de HTML alrededor de "No contratado"
-        const idx = html.indexOf('No contratado');
-        if (idx !== -1) {
-          const fragment = html.substring(idx, idx + 100);
-          console.log('DEBUG: Fragmento encontrado:', fragment);
-        }
-
         // Usar matchAll con regex más flexible
         const matches = [...html.matchAll(/No\s+contratado\s+\((\d+)\)/gi)];
-        console.log('DEBUG: Matches encontrados:', matches.length);
 
         if (matches.length > 0) {
           const fijos = parseInt(matches[0][1]);
-          console.log('DEBUG Chapero: Encontrado "No contratado":', fijos);
           return fijos;
         }
 
         // Método 2: Contar elementos con background='imagenes/chapab.jpg'
         const bgMatches = [...html.matchAll(/background='imagenes\/chapab\.jpg'/gi)];
-        console.log('DEBUG: chapab.jpg encontrados:', bgMatches.length);
-
         if (bgMatches.length > 0) {
-          console.log('DEBUG Chapero: Usando método 2 - chapab.jpg:', bgMatches.length);
           return bgMatches.length;
         }
 
-        console.log('DEBUG Chapero: No se encontraron fijos no contratados');
         return 0;
     });
+
+    console.log('✅ Fijos extraídos:', fijosResult);
 
     await browser.close();
 
