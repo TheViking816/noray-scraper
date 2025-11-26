@@ -424,7 +424,18 @@ app.get('/api/all', async (req, res) => {
       console.log('⚠️ Timeout esperando Cloudflare en Chapero, continuando...');
     }
 
-    await page.waitForTimeout(3000);
+    // Esperar más tiempo y hacer scroll para activar contenido dinámico
+    await page.waitForTimeout(5000);
+
+    // Hacer scroll down y up para activar lazy loading
+    await page.evaluate(() => {
+      window.scrollTo(0, document.body.scrollHeight);
+    });
+    await page.waitForTimeout(1000);
+    await page.evaluate(() => {
+      window.scrollTo(0, 0);
+    });
+    await page.waitForTimeout(2000);
 
     // Obtener el HTML completo para analizar
     const chaperoHTML = await page.evaluate(() => document.documentElement.outerHTML);
@@ -490,11 +501,17 @@ app.get('/api/all', async (req, res) => {
     console.log('✅ Scraping completo:', { demandas: demandasResult, fijos: fijosResult });
 
     // Debug: añadir fragmento HTML a la respuesta temporalmente
+    const pageTitle = await page.title();
+    const bodyText = await page.evaluate(() => document.body ? document.body.innerText.substring(0, 500) : 'NO BODY');
+
     const debugFragment = {
+      pageTitle: pageTitle,
+      bodyTextPreview: bodyText,
       containsLeyenda: chaperoHTML.includes('LEYENDA'),
       containsContratado: chaperoHTML.includes('contratado'),
       containsChapab: chaperoHTML.includes('chapab'),
       htmlLength: chaperoHTML.length,
+      htmlPreview: chaperoHTML.substring(0, 1000),
       firstPattern: chaperoHTML.match(/No\s+contratado\s*\((\d+)\)/i) ? 'FOUND' : 'NOT FOUND',
       secondPattern: (chaperoHTML.match(/background\s*=\s*['"']?imagenes\/chapab\.jpg['"']?/gi) || []).length,
       legendFragment: legendMatch ? legendMatch[0].substring(0, 500) : 'NOT FOUND'
