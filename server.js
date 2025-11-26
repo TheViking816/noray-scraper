@@ -212,24 +212,32 @@ app.get('/api/all', async (req, res) => {
     // 1. OBTENER PREVISIÓN
     await page.goto('https://noray.cpevalencia.com/PrevisionDemanda.asp', { waitUntil: 'domcontentloaded' });
     
+    // Obtener el HTML completo para debug
+    const htmlContent = await page.content();
+    console.log('📄 HTML recibido (primeros 500 chars):', htmlContent.substring(0, 500));
+    console.log('🔍 Buscando marcadores: TDazul=', htmlContent.includes('TDazul'),
+                'TDverde=', htmlContent.includes('TDverde'),
+                'TDrojo=', htmlContent.includes('TDrojo'),
+                'GRUAS=', htmlContent.includes('GRUAS'));
+
     const demandasResult = await page.evaluate(() => {
         const result = {
             '08-14': { gruas: 0, coches: 0 },
             '14-20': { gruas: 0, coches: 0 },
             '20-02': { gruas: 0, coches: 0 }
           };
-    
+
           const extractGruas = (seccion) => {
             if (!seccion) return 0;
             const match = seccion.match(/GRUAS.*?<Th[^>]*>(\d+)/is);
             return match ? parseInt(match[1]) : 0;
           };
-    
+
           const extractCoches = (seccion) => {
             if (!seccion) return 0;
             const grupoMatch = seccion.match(/GRUPO III.*?(?=<TR|<\/TABLE)/is);
             if (!grupoMatch) return 0;
-    
+
             const numeros = [];
             const regex = /<TD[^>]*align=center[^>]*nowrap[^>]*>(\d*)/gi;
             let m;
@@ -238,31 +246,32 @@ app.get('/api/all', async (req, res) => {
             }
             return numeros.length >= 4 ? numeros[3] : 0;
           };
-    
-          const html = document.body.innerHTML;
+
+          // Usar document.documentElement.innerHTML para obtener TODO el HTML
+          const html = document.documentElement.innerHTML;
           const idx0814Start = html.indexOf('TDazul');
           const idx1420Start = html.indexOf('TDverde');
           const idx2002Start = html.indexOf('TDrojo');
-    
+
           if (idx0814Start !== -1 && idx1420Start !== -1) {
             const seccion0814 = html.substring(idx0814Start, idx1420Start);
             result['08-14'].gruas = extractGruas(seccion0814);
             result['08-14'].coches = extractCoches(seccion0814);
           }
-    
+
           if (idx1420Start !== -1 && idx2002Start !== -1) {
             const seccion1420 = html.substring(idx1420Start, idx2002Start);
             result['14-20'].gruas = extractGruas(seccion1420);
             result['14-20'].coches = extractCoches(seccion1420);
           }
-    
+
           if (idx2002Start !== -1) {
             const idxEnd = html.indexOf('</TABLE>', idx2002Start);
             const seccion2002 = html.substring(idx2002Start, idxEnd !== -1 ? idxEnd : html.length);
             result['20-02'].gruas = extractGruas(seccion2002);
             result['20-02'].coches = extractCoches(seccion2002);
           }
-    
+
           return result;
     });
 
