@@ -496,10 +496,6 @@ app.get('/api/all', async (req, res) => {
 
     console.log('📊 Fijos final:', fijosResult);
 
-    await browser.close();
-
-    console.log('✅ Scraping completo:', { demandas: demandasResult, fijos: fijosResult });
-
     // Debug: añadir fragmento HTML a la respuesta temporalmente
     const pageTitle = await page.title();
     const bodyText = await page.evaluate(() => document.body ? document.body.innerText.substring(0, 500) : 'NO BODY');
@@ -516,6 +512,10 @@ app.get('/api/all', async (req, res) => {
       secondPattern: (chaperoHTML.match(/background\s*=\s*['"']?imagenes\/chapab\.jpg['"']?/gi) || []).length,
       legendFragment: legendMatch ? legendMatch[0].substring(0, 500) : 'NOT FOUND'
     };
+
+    await browser.close();
+
+    console.log('✅ Scraping completo:', { demandas: demandasResult, fijos: fijosResult });
 
     res.json({
       success: true,
