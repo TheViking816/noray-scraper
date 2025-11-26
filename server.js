@@ -1,5 +1,5 @@
 import express from 'express';
-import puppeteer from 'puppeteer';
+import puppeteer from 'puppeteer'; // Aunque es puppeteer-core, lo importamos como puppeteer
 import cors from 'cors';
 
 const app = express();
@@ -26,9 +26,7 @@ app.get('/', (req, res) => {
   });
 });
 
-// Configuración de Puppeteer para Render.com
-// En Render, Chromium puede estar disponible en /usr/bin/google-chrome
-// Si falla, puedes intentar usar puppeteer-core con el Chromium del sistema
+// Configuración de Puppeteer para Render.com con puppeteer-core
 const getBrowserConfig = () => ({
   headless: 'new', // Usa 'new' para el modo headless moderno
   args: [
@@ -43,8 +41,11 @@ const getBrowserConfig = () => ({
     '--disable-background-timer-throttling',
     '--disable-backgrounding-occluded-windows',
     '--disable-renderer-backgrounding'
-  ]
-  // Puppeteer descargará y usará su propio Chromium
+    // No es necesario --disable-features=VizDisplayCompositor aquí, a menos que sea necesario específicamente
+  ],
+  // Especificar la ruta al ejecutable de Chromium instalado en Render
+  executablePath: '/usr/bin/google-chrome' // Ruta típica en Render para Chromium del sistema
+  // Si esta ruta falla, puedes intentar otras como '/usr/bin/chromium-browser' o dejarlo comentado si puppeteer la detecta
 });
 
 // Endpoint: Obtener previsión de demanda
@@ -52,7 +53,7 @@ app.get('/api/prevision', async (req, res) => {
   let browser;
   try {
     console.log('🔍 Iniciando scraping de Previsión...');
-    browser = await puppeteer.launch(getBrowserConfig());
+    browser = await puppeteer.launch(getBrowserConfig()); // Usa la función de configuración
     const page = await browser.newPage();
 
     await page.goto('https://noray.cpevalencia.com/PrevisionDemanda.asp', {
@@ -188,7 +189,7 @@ app.get('/api/chapero', async (req, res) => {
   let browser;
   try {
     console.log('🔍 Iniciando scraping de Chapero...');
-    browser = await puppeteer.launch(getBrowserConfig());
+    browser = await puppeteer.launch(getBrowserConfig()); // Usa la función de configuración
     const page = await browser.newPage();
 
     await page.goto('https://noray.cpevalencia.com/Chapero.asp', {
@@ -242,7 +243,7 @@ app.get('/api/all', async (req, res) => {
   let browser;
   try {
     console.log('🔍 Iniciando scraping completo...');
-    browser = await puppeteer.launch(getBrowserConfig());
+    browser = await puppeteer.launch(getBrowserConfig()); // Usa la función de configuración
 
     // Crear dos páginas en paralelo para ir más rápido
     const [page1, page2] = await Promise.all([
