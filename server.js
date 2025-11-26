@@ -104,64 +104,63 @@ app.get('/api/prevision', async (req, res) => {
         '20-02': { gruas: 0, coches: 0 }
       };
 
-      const extractGruas = (seccion) => {
-        if (!seccion) return 0;
-        // Buscar la línea de GRUAS dentro de la sección
-        // Patrón: >&nbspGRUAS<TD align=center nowrap>NUMERO<
-        const match = seccion.match(/>&nbspGRUAS<TD align=center nowrap>(\d+)</i);
-        return match ? parseInt(match[1]) : 0;
-      };
-
-      const extractCoches = (seccion) => {
-        if (!seccion) return 0;
-
-        // Buscar el patrón específico de coches en las filas de equipos
-        // Patrón 1: "3&nbsp;C2" (con número)
-        // Patrón 2: "&nbsp;C2" (sin número = 0)
-
-        // Primero buscar si hay número antes de &nbsp;C2
-        const cochesConNumero = seccion.match(/(\d+)&nbsp;C2/i);
-        if (cochesConNumero) {
-          return parseInt(cochesConNumero[1]);
-        }
-
-        // Si solo hay &nbsp;C2 sin número delante, son 0 coches
-        const cochesSinNumero = seccion.match(/>&nbsp;C2/i);
-        if (cochesSinNumero) {
-          return 0;
-        }
-
-        return 0;
-      };
-
       const html = document.body.innerHTML;
 
-      // Buscar los marcadores de cada turno por su clase CSS
-      const idx0814 = html.indexOf('class=TDazul');
-      const idx1420 = html.indexOf('class=TDverde');
-      const idx2002 = html.indexOf('class=TDrojo');
-
-      // Extraer sección 08-14
-      if (idx0814 !== -1 && idx1420 !== -1) {
-        const seccion0814 = html.substring(idx0814, idx1420);
-        result['08-14'].gruas = extractGruas(seccion0814);
-        result['08-14'].coches = extractCoches(seccion0814);
+      // Extraer TODAS las grúas del HTML en orden de aparición
+      const gruasMatches = [];
+      const gruasRegex = />&nbsp;?GRUAS<TD[^>]*>(\d+)/gi;
+      let match;
+      while ((match = gruasRegex.exec(html)) !== null) {
+        gruasMatches.push({
+          valor: parseInt(match[1]),
+          posicion: match.index
+        });
       }
 
-      // Extraer sección 14-20
-      if (idx1420 !== -1 && idx2002 !== -1) {
-        const seccion1420 = html.substring(idx1420, idx2002);
-        result['14-20'].gruas = extractGruas(seccion1420);
-        result['14-20'].coches = extractCoches(seccion1420);
+      // Extraer TODOS los coches (patrón C2)
+      const cochesMatches = [];
+      const cochesRegex = /(?:(\d+)|>)&nbsp;C2/gi;
+      while ((match = cochesRegex.exec(html)) !== null) {
+        cochesMatches.push({
+          valor: match[1] ? parseInt(match[1]) : 0,
+          posicion: match.index
+        });
       }
 
-      // Extraer sección 20-02
-      if (idx2002 !== -1) {
-        const equiposPrevistosIdx = html.indexOf('Equipos Previstos', idx2002);
-        const endIdx = equiposPrevistosIdx !== -1 ? equiposPrevistosIdx : html.length;
-        const seccion2002 = html.substring(idx2002, endIdx);
-        result['20-02'].gruas = extractGruas(seccion2002);
-        result['20-02'].coches = extractCoches(seccion2002);
+      // Buscar las posiciones de los marcadores de turno
+      const tdazulIdx = html.search(/class[^>]*TDazul/i);
+      const tdverdeIdx = html.search(/class[^>]*TDverde/i);
+      const tdrojoIdx = html.search(/class[^>]*TDrojo/i);
+
+      // Asignar grúas según el orden de aparición
+      if (gruasMatches.length >= 3) {
+        gruasMatches.sort((a, b) => a.posicion - b.posicion);
+        result['08-14'].gruas = gruasMatches[0].valor;
+        result['14-20'].gruas = gruasMatches[1].valor;
+        result['20-02'].gruas = gruasMatches[2].valor;
+      }
+
+      // Asignar coches según el orden de aparición
+      if (cochesMatches.length > 0) {
+        cochesMatches.sort((a, b) => a.posicion - b.posicion);
+
+        for (const coche of cochesMatches) {
+          if (tdazulIdx !== -1 && coche.posicion > tdazulIdx &&
+              (tdverdeIdx === -1 || coche.posicion < tdverdeIdx)) {
+            if (result['08-14'].coches === 0) {
+              result['08-14'].coches = coche.valor;
+            }
+          } else if (tdverdeIdx !== -1 && coche.posicion > tdverdeIdx &&
+                     (tdrojoIdx === -1 || coche.posicion < tdrojoIdx)) {
+            if (result['14-20'].coches === 0) {
+              result['14-20'].coches = coche.valor;
+            }
+          } else if (tdrojoIdx !== -1 && coche.posicion > tdrojoIdx) {
+            if (result['20-02'].coches === 0) {
+              result['20-02'].coches = coche.valor;
+            }
+          }
+        }
       }
 
       return result;
@@ -349,77 +348,82 @@ app.get('/api/all', async (req, res) => {
             '20-02': { gruas: 0, coches: 0 }
           };
 
-          const extractGruas = (seccion) => {
-            if (!seccion) return 0;
-            // Buscar la línea de GRUAS dentro de la sección
-            // Patrón: >&nbspGRUAS<TD align=center nowrap>NUMERO<
-            const match = seccion.match(/>&nbspGRUAS<TD align=center nowrap>(\d+)</i);
-            return match ? parseInt(match[1]) : 0;
-          };
-
-          const extractCoches = (seccion) => {
-            if (!seccion) return 0;
-
-            // Buscar el patrón específico de coches en las filas de equipos
-            // Patrón 1: "3&nbsp;C2" (con número)
-            // Patrón 2: "&nbsp;C2" (sin número = 0)
-
-            // Primero buscar si hay número antes de &nbsp;C2
-            const cochesConNumero = seccion.match(/(\d+)&nbsp;C2/i);
-            if (cochesConNumero) {
-              console.log('DEBUG extractCoches: Encontrado coches con número:', cochesConNumero[1]);
-              return parseInt(cochesConNumero[1]);
-            }
-
-            // Si solo hay &nbsp;C2 sin número delante, son 0 coches
-            const cochesSinNumero = seccion.match(/>&nbsp;C2/i);
-            if (cochesSinNumero) {
-              console.log('DEBUG extractCoches: Encontrado &nbsp;C2 sin número = 0 coches');
-              return 0;
-            }
-
-            console.log('DEBUG extractCoches: No se encontró patrón C2');
-            return 0;
-          };
-
           // Usar document.body.innerHTML
           const html = document.body.innerHTML;
 
-          // Buscar los marcadores de cada turno por su clase CSS
-          // class=TDazul = 08-14 H, class=TDverde = 14-20 H, class=TDrojo = 20-02 H
-          const idx0814 = html.indexOf('class=TDazul');
-          const idx1420 = html.indexOf('class=TDverde');
-          const idx2002 = html.indexOf('class=TDrojo');
-
-          console.log('DEBUG indices:', { idx0814, idx1420, idx2002 });
-
-          // Extraer sección 08-14
-          if (idx0814 !== -1 && idx1420 !== -1) {
-            const seccion0814 = html.substring(idx0814, idx1420);
-            result['08-14'].gruas = extractGruas(seccion0814);
-            result['08-14'].coches = extractCoches(seccion0814);
-            console.log('DEBUG 08-14:', result['08-14']);
+          // Extraer TODAS las grúas del HTML en orden de aparición
+          const gruasMatches = [];
+          const gruasRegex = />&nbsp;?GRUAS<TD[^>]*>(\d+)/gi;
+          let match;
+          while ((match = gruasRegex.exec(html)) !== null) {
+            gruasMatches.push({
+              valor: parseInt(match[1]),
+              posicion: match.index
+            });
           }
 
-          // Extraer sección 14-20
-          if (idx1420 !== -1 && idx2002 !== -1) {
-            const seccion1420 = html.substring(idx1420, idx2002);
-            result['14-20'].gruas = extractGruas(seccion1420);
-            result['14-20'].coches = extractCoches(seccion1420);
-            console.log('DEBUG 14-20:', result['14-20']);
+          console.log('DEBUG: Grúas encontradas:', gruasMatches);
+
+          // Extraer TODOS los coches (patrón C2)
+          const cochesMatches = [];
+          // Buscar todas las apariciones de C2 con o sin número
+          const cochesRegex = /(?:(\d+)|>)&nbsp;C2/gi;
+          while ((match = cochesRegex.exec(html)) !== null) {
+            cochesMatches.push({
+              valor: match[1] ? parseInt(match[1]) : 0,
+              posicion: match.index
+            });
           }
 
-          // Extraer sección 20-02
-          if (idx2002 !== -1) {
-            // Buscar el final de la tabla de equipos para esta sección
-            const equiposPrevistosIdx = html.indexOf('Equipos Previstos', idx2002);
-            const endIdx = equiposPrevistosIdx !== -1 ? equiposPrevistosIdx : html.length;
-            const seccion2002 = html.substring(idx2002, endIdx);
-            result['20-02'].gruas = extractGruas(seccion2002);
-            result['20-02'].coches = extractCoches(seccion2002);
-            console.log('DEBUG 20-02:', result['20-02']);
+          console.log('DEBUG: Coches encontrados:', cochesMatches);
+
+          // Buscar las posiciones de los marcadores de turno
+          const tdazulIdx = html.search(/class[^>]*TDazul/i);
+          const tdverdeIdx = html.search(/class[^>]*TDverde/i);
+          const tdrojoIdx = html.search(/class[^>]*TDrojo/i);
+
+          console.log('DEBUG: Posiciones turnos:', { tdazulIdx, tdverdeIdx, tdrojoIdx });
+
+          // Asignar grúas según el orden de aparición
+          // Primera GRUAS después de TDazul = 08-14
+          // Segunda GRUAS después de TDverde = 14-20
+          // Tercera GRUAS después de TDrojo = 20-02
+
+          if (gruasMatches.length >= 3) {
+            // Ordenar por posición para asegurar el orden correcto
+            gruasMatches.sort((a, b) => a.posicion - b.posicion);
+
+            result['08-14'].gruas = gruasMatches[0].valor;
+            result['14-20'].gruas = gruasMatches[1].valor;
+            result['20-02'].gruas = gruasMatches[2].valor;
           }
 
+          // Asignar coches según el orden de aparición
+          // Buscar coches después de cada marcador de turno
+          if (cochesMatches.length > 0) {
+            cochesMatches.sort((a, b) => a.posicion - b.posicion);
+
+            // Encontrar qué coches están después de cada turno
+            for (const coche of cochesMatches) {
+              if (tdazulIdx !== -1 && coche.posicion > tdazulIdx &&
+                  (tdverdeIdx === -1 || coche.posicion < tdverdeIdx)) {
+                if (result['08-14'].coches === 0) {
+                  result['08-14'].coches = coche.valor;
+                }
+              } else if (tdverdeIdx !== -1 && coche.posicion > tdverdeIdx &&
+                         (tdrojoIdx === -1 || coche.posicion < tdrojoIdx)) {
+                if (result['14-20'].coches === 0) {
+                  result['14-20'].coches = coche.valor;
+                }
+              } else if (tdrojoIdx !== -1 && coche.posicion > tdrojoIdx) {
+                if (result['20-02'].coches === 0) {
+                  result['20-02'].coches = coche.valor;
+                }
+              }
+            }
+          }
+
+          console.log('DEBUG: Resultado final:', result);
           return result;
     });
 
