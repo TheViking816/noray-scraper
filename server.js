@@ -489,11 +489,23 @@ app.get('/api/all', async (req, res) => {
 
     console.log('✅ Scraping completo:', { demandas: demandasResult, fijos: fijosResult });
 
+    // Debug: añadir fragmento HTML a la respuesta temporalmente
+    const debugFragment = {
+      containsLeyenda: chaperoHTML.includes('LEYENDA'),
+      containsContratado: chaperoHTML.includes('contratado'),
+      containsChapab: chaperoHTML.includes('chapab'),
+      htmlLength: chaperoHTML.length,
+      firstPattern: chaperoHTML.match(/No\s+contratado\s*\((\d+)\)/i) ? 'FOUND' : 'NOT FOUND',
+      secondPattern: (chaperoHTML.match(/background\s*=\s*['"']?imagenes\/chapab\.jpg['"']?/gi) || []).length,
+      legendFragment: legendMatch ? legendMatch[0].substring(0, 500) : 'NOT FOUND'
+    };
+
     res.json({
       success: true,
       timestamp: new Date().toISOString(),
       demandas: demandasResult,
-      fijos: fijosResult
+      fijos: fijosResult,
+      debug: debugFragment
     });
 
   } catch (error) {
