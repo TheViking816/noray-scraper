@@ -17,6 +17,6 @@
     "puppeteer": "^23.8.0"
   },
   "engines": {
-    "node": "20.x" // Revertido a 20.x
+    "node": "20.x"
   }
 }
