@@ -408,47 +408,45 @@ app.get('/api/all', async (req, res) => {
 
     // 2. OBTENER CHAPERO (Reusando la misma página para ahorrar memoria)
     await page.goto('https://noray.cpevalencia.com/Chapero.asp', {
-      waitUntil: 'networkidle2',
+      waitUntil: 'domcontentloaded',
       timeout: 60000
     });
 
-    // Esperar bypass de Cloudflare más agresivamente
-    console.log('⏳ Esperando bypass de Cloudflare (Chapero)...');
+    console.log('⏳ Esperando bypass de Cloudflare Challenge (Chapero)...');
 
-    // Intentar múltiples estrategias para bypassear Cloudflare
-    let cloudflareBypassSuccessful = false;
+    // Cloudflare Managed Challenge requiere esperar a que se ejecute el JavaScript
+    // El challenge carga un script de /cdn-cgi/challenge-platform/ que redirige automáticamente
 
-    // Estrategia 1: Esperar que desaparezca "Un momento"
-    try {
-      await page.waitForFunction(
-        () => !document.title.includes('Un momento') && !document.title.includes('Just a moment'),
-        { timeout: 30000 }
-      );
-      cloudflareBypassSuccessful = true;
-      console.log('✅ Cloudflare bypass completado (por título)');
-    } catch (e) {
-      console.log('⚠️ Estrategia 1 falló');
-    }
+    // Esperar a que el challenge se resuelva automáticamente
+    // Esto puede tomar hasta 5-10 segundos
+    let bypassed = false;
+    const maxWaitTime = 45000; // 45 segundos máximo
+    const startTime = Date.now();
 
-    // Estrategia 2: Esperar que aparezca contenido real (tabla o body con contenido)
-    if (!cloudflareBypassSuccessful) {
-      try {
-        await page.waitForFunction(
-          () => {
-            const bodyText = document.body?.innerText || '';
-            return bodyText.length > 1000 && !bodyText.includes('Cloudflare');
-          },
-          { timeout: 30000 }
-        );
-        cloudflareBypassSuccessful = true;
-        console.log('✅ Cloudflare bypass completado (por contenido)');
-      } catch (e) {
-        console.log('⚠️ Estrategia 2 falló');
+    while (!bypassed && (Date.now() - startTime) < maxWaitTime) {
+      await page.waitForTimeout(2000);
+
+      const currentTitle = await page.title();
+      const currentUrl = page.url();
+
+      console.log(`⏱️ Esperando... Título: "${currentTitle}", URL: ${currentUrl.substring(0, 60)}`);
+
+      // El challenge se ha resuelto si:
+      // 1. El título ya no es "Just a moment" o "Un momento"
+      // 2. La URL ya no contiene __cf_chl_
+      if (!currentTitle.includes('moment') && !currentUrl.includes('__cf_chl_')) {
+        bypassed = true;
+        console.log('✅ Cloudflare challenge resuelto!');
+        break;
       }
     }
 
-    // Esperar adicional para JavaScript
-    await page.waitForTimeout(8000);
+    if (!bypassed) {
+      console.log('⚠️ Timeout esperando Cloudflare, continuando de todas formas...');
+    }
+
+    // Esperar tiempo adicional para que cargue el contenido real
+    await page.waitForTimeout(5000);
 
     // Obtener el HTML completo para analizar
     const chaperoHTML = await page.evaluate(() => document.documentElement.outerHTML);
