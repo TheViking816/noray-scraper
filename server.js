@@ -406,47 +406,30 @@ app.get('/api/all', async (req, res) => {
           return result;
     });
 
-    // 2. OBTENER CHAPERO (Reusando la misma página para ahorrar memoria)
+    // 2. OBTENER CHAPERO
+    // ESTRATEGIA: Ya tenemos las cookies de Cloudflare de PrevisionDemanda.asp
+    // que está en el mismo dominio, así que deberían funcionar también para Chapero.asp
+
+    console.log('🔄 Navegando a Chapero.asp con cookies existentes de Cloudflare...');
+
     await page.goto('https://noray.cpevalencia.com/Chapero.asp', {
       waitUntil: 'domcontentloaded',
       timeout: 60000
     });
 
-    console.log('⏳ Esperando bypass de Cloudflare Challenge (Chapero)...');
-
-    // Cloudflare Managed Challenge requiere esperar a que se ejecute el JavaScript
-    // El challenge carga un script de /cdn-cgi/challenge-platform/ que redirige automáticamente
-
-    // Esperar a que el challenge se resuelva automáticamente
-    // Esto puede tomar hasta 5-10 segundos
-    let bypassed = false;
-    const maxWaitTime = 45000; // 45 segundos máximo
-    const startTime = Date.now();
-
-    while (!bypassed && (Date.now() - startTime) < maxWaitTime) {
-      await page.waitForTimeout(2000);
-
-      const currentTitle = await page.title();
-      const currentUrl = page.url();
-
-      console.log(`⏱️ Esperando... Título: "${currentTitle}", URL: ${currentUrl.substring(0, 60)}`);
-
-      // El challenge se ha resuelto si:
-      // 1. El título ya no es "Just a moment" o "Un momento"
-      // 2. La URL ya no contiene __cf_chl_
-      if (!currentTitle.includes('moment') && !currentUrl.includes('__cf_chl_')) {
-        bypassed = true;
-        console.log('✅ Cloudflare challenge resuelto!');
-        break;
-      }
+    // Esperar bypass de Cloudflare (debería ser más rápido porque ya tenemos cookies)
+    console.log('⏳ Esperando bypass de Cloudflare (Chapero)...');
+    try {
+      await page.waitForFunction(
+        () => !document.title.includes('Just a moment') && !document.title.includes('Un momento'),
+        { timeout: 30000 }
+      );
+      console.log('✅ Cloudflare bypass completado (Chapero)');
+    } catch (e) {
+      console.log('⚠️ Timeout esperando Cloudflare en Chapero, continuando...');
     }
 
-    if (!bypassed) {
-      console.log('⚠️ Timeout esperando Cloudflare, continuando de todas formas...');
-    }
-
-    // Esperar tiempo adicional para que cargue el contenido real
-    await page.waitForTimeout(5000);
+    await page.waitForTimeout(3000);
 
     // Obtener el HTML completo para analizar
     const chaperoHTML = await page.evaluate(() => document.documentElement.outerHTML);
