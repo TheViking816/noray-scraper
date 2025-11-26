@@ -228,12 +228,17 @@ app.get('/api/chapero', async (req, res) => {
 
     const fijos = await page.evaluate(() => {
       const html = document.body.innerHTML;
-      const match = html.match(/No\s+contratado\s+\((\d+)\)/i);
-      if (match) {
-        return parseInt(match[1]) || 0;
+
+      // Usar matchAll para buscar "No contratado (número)"
+      const matches = [...html.matchAll(/No\s+contratado\s+\((\d+)\)/gi)];
+
+      if (matches.length > 0) {
+        return parseInt(matches[0][1]);
       }
-      const bgMatches = html.match(/background='imagenes\/chapab\.jpg'/gi);
-      return bgMatches ? bgMatches.length : 0;
+
+      // Método 2: Contar elementos con background='imagenes/chapab.jpg'
+      const bgMatches = [...html.matchAll(/background='imagenes\/chapab\.jpg'/gi)];
+      return bgMatches.length > 0 ? bgMatches.length : 0;
     });
 
     await browser.close();
@@ -424,19 +429,19 @@ app.get('/api/all', async (req, res) => {
     const fijosResult = await page.evaluate(() => {
         const html = document.body.innerHTML;
 
-        // Método 1: Buscar "No contratado (número)" - Este es el más confiable
-        // El patrón en el HTML es: "No contratado (87)&nbsp"
-        const match = html.match(/No\s*contratado\s*\((\d+)\)/i);
-        if (match) {
-          console.log('DEBUG Chapero: Método 1 - No contratado:', match[1]);
-          return parseInt(match[1]) || 0;
+        // Usar matchAll para buscar "No contratado (número)"
+        const matches = [...html.matchAll(/No\s+contratado\s+\((\d+)\)/gi)];
+
+        if (matches.length > 0) {
+          const fijos = parseInt(matches[0][1]);
+          console.log('DEBUG Chapero: Encontrado "No contratado":', fijos);
+          return fijos;
         }
 
         // Método 2: Contar elementos con background='imagenes/chapab.jpg'
-        // Esto cuenta los elementos con clase nocontratado
-        const bgMatches = html.match(/background='imagenes\/chapab\.jpg'/gi);
-        if (bgMatches) {
-          console.log('DEBUG Chapero: Método 2 - Contando chapab.jpg:', bgMatches.length);
+        const bgMatches = [...html.matchAll(/background='imagenes\/chapab\.jpg'/gi)];
+        if (bgMatches.length > 0) {
+          console.log('DEBUG Chapero: Contando chapab.jpg:', bgMatches.length);
           return bgMatches.length;
         }
 
