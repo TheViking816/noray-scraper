@@ -18,7 +18,7 @@ app.use(express.json());
 app.get('/', (req, res) => {
   res.json({
     status: 'ok',
-    message: 'Noray Scraper API v1.0 (Fixed Parsing)',
+    message: 'Noray Scraper API v1.1 (Regex Fixed)',
     endpoints: {
       prevision: '/api/prevision',
       chapero: '/api/chapero',
@@ -75,25 +75,23 @@ app.get('/api/prevision', async (req, res) => {
         '20-02': { gruas: 0, coches: 0 }
       };
 
-      // 1. PARSEO DE GRÚAS (Tabla Principal - colspan=8)
-      // Cortamos el HTML en trozos basados en los encabezados de la tabla grande
+      // 1. PARSEO DE GRÚAS (Tabla Principal)
+      // Dividimos el HTML por las clases de colores para aislar los turnos
       const mainTableRegex = /class=(TDazul|TDverde|TDrojo)[^>]*colspan=8/gi;
       const splitHtml = html.split(mainTableRegex);
-      
-      // La función split con regex devuelve [texto_antes, captura_clase, texto_despues...]
-      // Buscamos donde empieza cada turno en el array
       
       const findSectionContent = (color) => {
           const index = splitHtml.indexOf(color);
           if (index !== -1 && index + 1 < splitHtml.length) {
-              return splitHtml[index + 1]; // Retorna el contenido HTML después de la etiqueta
+              return splitHtml[index + 1];
           }
           return '';
       };
 
       const extractGruas = (sectionHtml) => {
-        // Busca la fila GRUAS y coge el valor dentro del <Th>
-        const match = sectionHtml.match(/GRUAS.*?<Th[^>]*>(\d+)/i);
+        // CORREGIDO: Busca "GRUAS" y coge el primer TD numérico que le sigue
+        // Patrón usuario: &nbspGRUAS<TD align=center nowrap>13
+        const match = sectionHtml.match(/GRUAS.*?<TD[^>]*>(\d+)/i);
         return match ? parseInt(match[1]) : 0;
       };
 
@@ -101,14 +99,13 @@ app.get('/api/prevision', async (req, res) => {
       result['14-20'].gruas = extractGruas(findSectionContent('TDverde'));
       result['20-02'].gruas = extractGruas(findSectionContent('TDrojo'));
 
-      // 2. PARSEO DE COCHES (Tabla Resumen Inferior - colspan=2)
-      // Buscamos la estructura específica de la tabla pequeña: 
-      // class=TD[color] colspan=2 ... luego viene el número ... luego &nbsp;C2
+      // 2. PARSEO DE COCHES (Tabla Resumen Inferior)
+      // Patrón general: <TD class=TD[color] ...>NOMBRE TURNO</TD><TD ...>NUMERO&nbsp;C2
       const extractCoches = (color) => {
-        const regex = new RegExp(`class=${color}[^>]*colspan=2.*?<TD[^>]*>(\\d*)&nbsp;C2`, 'i');
+        // Buscamos la celda de color y luego, en las celdas siguientes ([\s\S]*?), buscamos el número seguido de C2
+        const regex = new RegExp(`class=${color}[^>]*>[\\s\\S]*?<TD[^>]*>(\\d+)&nbsp;C2`, 'i');
         const match = html.match(regex);
-        // Si hay número lo devuelve, si es vacío (solo &nbsp;C2) devuelve 0
-        return match && match[1] ? parseInt(match[1]) : 0;
+        return match ? parseInt(match[1]) : 0;
       };
 
       result['08-14'].coches = extractCoches('TDazul');
@@ -142,7 +139,6 @@ app.get('/api/chapero', async (req, res) => {
     browser = await puppeteer.launch(getBrowserConfig());
     const page = await browser.newPage();
 
-    // Bloquear imágenes para ir más rápido, pero NO para el html content
     await page.setRequestInterception(true);
     page.on('request', (req) => {
         if (['image', 'stylesheet', 'font'].includes(req.resourceType())) {
@@ -160,15 +156,15 @@ app.get('/api/chapero', async (req, res) => {
     const fijos = await page.evaluate(() => {
       const html = document.body.innerHTML;
       
-      // ESTRATEGIA: Contar elementos con clase "nocontratado"
-      // En el HTML fuente: <span class=nocontratado>XXXX</span>
-      const matches = html.match(/class=['"]?nocontratado['"]?/gi);
+      // CORREGIDO: Buscar textualmente "No contratado (XXX)"
+      // Patrón usuario: No contratado (103)
+      const match = html.match(/No\s+contratado\s*\((\d+)\)/i);
       
-      if (matches && matches.length > 0) {
-          return matches.length;
+      if (match) {
+          return parseInt(match[1]);
       }
       
-      // Fallback: Contar imágenes 'chapab.jpg' si la clase falla
+      // Fallback por si acaso
       const bgMatches = html.match(/chapab\.jpg/gi);
       return bgMatches ? bgMatches.length : 0;
     });
@@ -205,9 +201,6 @@ app.get('/api/all', async (req, res) => {
 
     // --- 1. PREVISIÓN ---
     await page.goto('https://noray.cpevalencia.com/PrevisionDemanda.asp', { waitUntil: 'domcontentloaded' });
-    
-    // Esperar un instante por si acaso hay renderizado tardío (aunque el HTML suele ser estático)
-    // await page.waitForTimeout(1000); 
 
     const demandasResult = await page.evaluate(() => {
         const html = document.body.innerHTML;
@@ -217,7 +210,7 @@ app.get('/api/all', async (req, res) => {
           '20-02': { gruas: 0, coches: 0 }
         };
   
-        // Lógica Grúas (Tabla principal colspan=8)
+        // Lógica Grúas
         const mainTableRegex = /class=(TDazul|TDverde|TDrojo)[^>]*colspan=8/gi;
         const splitHtml = html.split(mainTableRegex);
         
@@ -226,18 +219,20 @@ app.get('/api/all', async (req, res) => {
             return (index !== -1 && index + 1 < splitHtml.length) ? splitHtml[index + 1] : '';
         };
         const extractGruas = (section) => {
-          const match = section.match(/GRUAS.*?<Th[^>]*>(\d+)/i);
+          // CORREGIDO: Buscar GRUAS seguido de <TD> con numero
+          const match = section.match(/GRUAS.*?<TD[^>]*>(\d+)/i);
           return match ? parseInt(match[1]) : 0;
         };
         result['08-14'].gruas = extractGruas(findSectionContent('TDazul'));
         result['14-20'].gruas = extractGruas(findSectionContent('TDverde'));
         result['20-02'].gruas = extractGruas(findSectionContent('TDrojo'));
   
-        // Lógica Coches (Tabla resumen colspan=2)
+        // Lógica Coches
         const extractCoches = (color) => {
-          const regex = new RegExp(`class=${color}[^>]*colspan=2.*?<TD[^>]*>(\\d*)&nbsp;C2`, 'i');
+          // CORREGIDO: Regex más permisivo
+          const regex = new RegExp(`class=${color}[^>]*>[\\s\\S]*?<TD[^>]*>(\\d+)&nbsp;C2`, 'i');
           const match = html.match(regex);
-          return match && match[1] ? parseInt(match[1]) : 0;
+          return match ? parseInt(match[1]) : 0;
         };
         result['08-14'].coches = extractCoches('TDazul');
         result['14-20'].coches = extractCoches('TDverde');
@@ -251,9 +246,13 @@ app.get('/api/all', async (req, res) => {
     
     const fijosResult = await page.evaluate(() => {
         const html = document.body.innerHTML;
-        // Cuenta ocurrencias de la clase "nocontratado"
-        const matches = html.match(/class=['"]?nocontratado['"]?/gi);
-        return matches ? matches.length : 0;
+        // CORREGIDO: Buscar texto específico "No contratado (XXX)"
+        const match = html.match(/No\s+contratado\s*\((\d+)\)/i);
+        if (match) return parseInt(match[1]);
+        
+        // Fallback
+        const bgMatches = html.match(/chapab\.jpg/gi);
+        return bgMatches ? bgMatches.length : 0;
     });
 
     await browser.close();
