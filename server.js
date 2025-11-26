@@ -343,28 +343,17 @@ app.get('/api/all', async (req, res) => {
           const extractCoches = (seccion) => {
             if (!seccion) return 0;
 
-            // Buscar GRUPO III y la fila completa de datos
-            const grupoMatch = seccion.match(/GRUPO III.*?<\/TR>/is);
-            if (!grupoMatch) {
-              console.log('DEBUG extractCoches: No se encontró GRUPO III');
-              return 0;
+            // Buscar el patrón: [número]&nbsp;C2
+            // Ejemplo: "18&nbsp;C2" o ">3&nbsp;C2"
+            const cochesMatch = seccion.match(/>(\d+)&nbsp;C2/i);
+
+            if (cochesMatch) {
+              console.log('DEBUG extractCoches: Encontrado patrón C2:', cochesMatch[0], 'Número:', cochesMatch[1]);
+              return parseInt(cochesMatch[1]);
             }
 
-            console.log('DEBUG extractCoches: GRUPO III encontrado, contenido:', grupoMatch[0].substring(0, 200));
-
-            // Buscar todos los números en celdas TD
-            const numeros = [];
-            const regex = /<TD[^>]*align=center[^>]*nowrap[^>]*>(\d*)/gi;
-            let m;
-            while ((m = regex.exec(grupoMatch[0])) !== null) {
-              const num = m[1] ? parseInt(m[1]) : 0;
-              numeros.push(num);
-            }
-
-            console.log('DEBUG extractCoches: Números extraídos:', numeros);
-
-            // El índice 3 debería ser "coches" según la estructura de la tabla
-            return numeros.length >= 4 ? numeros[3] : 0;
+            console.log('DEBUG extractCoches: No se encontró patrón [número]&nbsp;C2');
+            return 0;
           };
 
           // Usar document.body.innerHTML
@@ -436,10 +425,23 @@ app.get('/api/all', async (req, res) => {
 
     const fijosResult = await page.evaluate(() => {
         const html = document.body.innerHTML;
+
+        // Método 1: Buscar "No contratado (número)"
         const match = html.match(/No\s+contratado\s+\((\d+)\)/i);
-        if (match) return parseInt(match[1]) || 0;
+        if (match) {
+          console.log('DEBUG Chapero: Método 1 - No contratado:', match[1]);
+          return parseInt(match[1]) || 0;
+        }
+
+        // Método 2: Contar imágenes chapab.jpg
         const bgMatches = html.match(/background='imagenes\/chapab\.jpg'/gi);
-        return bgMatches ? bgMatches.length : 0;
+        if (bgMatches) {
+          console.log('DEBUG Chapero: Método 2 - Contando chapab.jpg:', bgMatches.length);
+          return bgMatches.length;
+        }
+
+        console.log('DEBUG Chapero: No se encontraron fijos');
+        return 0;
     });
 
     await browser.close();
