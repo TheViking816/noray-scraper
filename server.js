@@ -6,9 +6,19 @@ import cors from 'cors';
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+// Cache en memoria para respuestas rápidas
+let cachedData = {
+  demandas: null,
+  fijos: 0,
+  timestamp: null,
+  isUpdating: false
+};
+
+const CACHE_DURATION = 30 * 60 * 1000; // 30 minutos
+
 // Habilitar CORS para tu PWA
 app.use(cors({
-  origin: '*', 
+  origin: '*',
   methods: ['GET', 'POST']
 }));
 
@@ -18,11 +28,17 @@ app.use(express.json());
 app.get('/', (req, res) => {
   res.json({
     status: 'ok',
-    message: 'Noray Scraper API v1.0 (Optimized for Render)',
+    message: 'Noray Scraper API v2.0 (With caching)',
     endpoints: {
       prevision: '/api/prevision',
       chapero: '/api/chapero',
-      all: '/api/all'
+      all: '/api/all (cached)',
+      refresh: '/api/refresh (force update)'
+    },
+    cache: {
+      hasData: cachedData.demandas !== null,
+      lastUpdate: cachedData.timestamp,
+      isUpdating: cachedData.isUpdating
     }
   });
 });
@@ -261,12 +277,12 @@ app.get('/api/chapero', async (req, res) => {
   }
 });
 
-// Endpoint: Obtener todo (previsión + chapero)
-// MODIFICADO: Ejecución secuencial para no reventar la RAM de Render (512MB)
-app.get('/api/all', async (req, res) => {
+// Función para ejecutar el scraping (usada por /api/refresh y en startup)
+async function performScraping() {
   let browser;
   try {
     console.log('🔍 Iniciando scraping completo (Secuencial)...');
+    cachedData.isUpdating = true;
     browser = await puppeteer.launch(getBrowserConfig());
     const page = await browser.newPage();
 
@@ -494,16 +510,86 @@ app.get('/api/all', async (req, res) => {
 
     console.log('✅ Scraping completo:', { demandas: demandasResult, fijos: fijosResult });
 
-    res.json({
+    // Actualizar caché
+    cachedData.demandas = demandasResult;
+    cachedData.fijos = fijosResult;
+    cachedData.timestamp = new Date().toISOString();
+    cachedData.isUpdating = false;
+
+    return {
       success: true,
-      timestamp: new Date().toISOString(),
+      timestamp: cachedData.timestamp,
       demandas: demandasResult,
       fijos: fijosResult
-    });
+    };
 
   } catch (error) {
     console.error('❌ Error en scraping completo:', error);
     if (browser) await browser.close();
+    cachedData.isUpdating = false;
+    throw error;
+  }
+}
+
+// Endpoint: Obtener todo (previsión + chapero) - CON CACHÉ
+app.get('/api/all', async (req, res) => {
+  try {
+    // Si hay datos en caché y no han expirado, devolverlos inmediatamente
+    const now = Date.now();
+    const cacheAge = cachedData.timestamp ? now - new Date(cachedData.timestamp).getTime() : Infinity;
+
+    if (cachedData.demandas && cacheAge < CACHE_DURATION) {
+      console.log(`✅ Devolviendo datos del caché (edad: ${Math.round(cacheAge / 1000)}s)`);
+      return res.json({
+        success: true,
+        timestamp: cachedData.timestamp,
+        demandas: cachedData.demandas,
+        fijos: cachedData.fijos,
+        cached: true,
+        cacheAge: Math.round(cacheAge / 1000)
+      });
+    }
+
+    // Si no hay caché o expiró, pero ya hay un scraping en progreso, esperar un poco
+    if (cachedData.isUpdating) {
+      console.log('⏳ Scraping en progreso, esperando...');
+      // Esperar hasta 3 segundos a que termine
+      for (let i = 0; i < 6; i++) {
+        await new Promise(resolve => setTimeout(resolve, 500));
+        if (!cachedData.isUpdating && cachedData.demandas) {
+          console.log('✅ Scraping completado, devolviendo datos actualizados');
+          return res.json({
+            success: true,
+            timestamp: cachedData.timestamp,
+            demandas: cachedData.demandas,
+            fijos: cachedData.fijos,
+            cached: true,
+            fresh: true
+          });
+        }
+      }
+    }
+
+    // Si llegamos aquí, necesitamos hacer scraping
+    console.log('🔄 Caché expirado o inexistente, ejecutando scraping...');
+    const result = await performScraping();
+    res.json(result);
+
+  } catch (error) {
+    console.error('❌ Error en /api/all:', error);
+    // Si hay error pero tenemos caché viejo, devolverlo con advertencia
+    if (cachedData.demandas) {
+      return res.json({
+        success: true,
+        timestamp: cachedData.timestamp,
+        demandas: cachedData.demandas,
+        fijos: cachedData.fijos,
+        cached: true,
+        stale: true,
+        warning: 'Usando datos en caché debido a error en scraping'
+      });
+    }
+
     res.status(500).json({
       success: false,
       error: error.message,
@@ -512,6 +598,32 @@ app.get('/api/all', async (req, res) => {
   }
 });
 
+// Endpoint: Forzar actualización del caché
+app.get('/api/refresh', async (req, res) => {
+  try {
+    console.log('🔄 Forzando actualización del caché...');
+    const result = await performScraping();
+    res.json({
+      ...result,
+      refreshed: true
+    });
+  } catch (error) {
+    console.error('❌ Error en /api/refresh:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+      timestamp: new Date().toISOString()
+    });
+  }
+});
+
+// Actualizar datos en startup
+console.log('🚀 Iniciando actualización inicial del caché...');
+performScraping()
+  .then(() => console.log('✅ Caché inicial cargado'))
+  .catch(err => console.error('❌ Error cargando caché inicial:', err));
+
 app.listen(PORT, () => {
   console.log(`🚀 Noray Scraper API ejecutándose en puerto ${PORT}`);
+  console.log(`📊 Caché configurado para ${CACHE_DURATION / 60000} minutos`);
 });
