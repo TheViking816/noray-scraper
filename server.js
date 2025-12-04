@@ -229,16 +229,38 @@ app.get('/api/chapero', async (req, res) => {
       timeout: 60000
     });
 
-    // Esperar bypass de Cloudflare
+    // Esperar bypass de Cloudflare con verificación más robusta
     console.log('⏳ Esperando bypass de Cloudflare (Chapero)...');
     try {
       await page.waitForFunction(
-        () => !document.title.includes('Just a moment'),
-        { timeout: 30000 }
+        () => {
+          const bodyText = document.body.innerText.toLowerCase();
+          const html = document.body.innerHTML.toLowerCase();
+
+          // Verificar que NO hay challenges activos
+          const hasCloudflareChallenge =
+            document.title.includes('Just a moment') ||
+            document.title.includes('Un momento') ||
+            bodyText.includes('verificar que usted es un ser humano') ||
+            bodyText.includes('checking your browser') ||
+            bodyText.includes('please wait') ||
+            html.includes('challenges.cloudflare.com');
+
+          // Verificar que SÍ hay contenido de la página real
+          const hasRealContent =
+            html.includes('contratado') ||
+            html.includes('chapero') ||
+            html.includes('noray');
+
+          // Solo continuar si no hay challenge Y hay contenido real
+          return !hasCloudflareChallenge && hasRealContent;
+        },
+        { timeout: 45000, polling: 500 }
       );
-      console.log('✅ Cloudflare bypass completado (Chapero)');
+      console.log('✅ Cloudflare bypass completado y contenido verificado (Chapero)');
     } catch (e) {
-      console.log('⚠️ Timeout esperando Cloudflare, continuando...');
+      console.log('⚠️ Timeout esperando Cloudflare en Chapero, intentando continuar...');
+      await page.waitForTimeout(5000);
     }
     await page.waitForTimeout(2000);
 
@@ -432,19 +454,44 @@ async function performScraping() {
       timeout: 60000
     });
 
-    // Esperar bypass de Cloudflare (debería ser más rápido porque ya tenemos cookies)
+    // Esperar bypass de Cloudflare con verificación más robusta
     console.log('⏳ Esperando bypass de Cloudflare (Chapero)...');
     try {
+      // Esperar a que desaparezcan los indicadores de Cloudflare challenge
       await page.waitForFunction(
-        () => !document.title.includes('Just a moment') && !document.title.includes('Un momento'),
-        { timeout: 30000 }
+        () => {
+          const bodyText = document.body.innerText.toLowerCase();
+          const html = document.body.innerHTML.toLowerCase();
+
+          // Verificar que NO hay challenges activos
+          const hasCloudflareChallenge =
+            document.title.includes('Just a moment') ||
+            document.title.includes('Un momento') ||
+            bodyText.includes('verificar que usted es un ser humano') ||
+            bodyText.includes('checking your browser') ||
+            bodyText.includes('please wait') ||
+            html.includes('challenges.cloudflare.com');
+
+          // Verificar que SÍ hay contenido de la página real
+          const hasRealContent =
+            html.includes('contratado') ||
+            html.includes('chapero') ||
+            html.includes('noray');
+
+          // Solo continuar si no hay challenge Y hay contenido real
+          return !hasCloudflareChallenge && hasRealContent;
+        },
+        { timeout: 45000, polling: 500 }
       );
-      console.log('✅ Cloudflare bypass completado (Chapero)');
+      console.log('✅ Cloudflare bypass completado y contenido verificado (Chapero)');
     } catch (e) {
-      console.log('⚠️ Timeout esperando Cloudflare en Chapero, continuando...');
+      console.log('⚠️ Timeout esperando Cloudflare en Chapero, intentando continuar...');
+      // Dar tiempo extra por si acaso
+      await page.waitForTimeout(5000);
     }
 
-    await page.waitForTimeout(3000);
+    // Esperar adicional para asegurar renderizado completo
+    await page.waitForTimeout(2000);
 
     // Obtener el HTML completo para analizar (usando body.innerHTML es más confiable)
     const chaperoHTML = await page.evaluate(() => document.body.innerHTML);
