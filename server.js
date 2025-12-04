@@ -245,16 +245,33 @@ app.get('/api/chapero', async (req, res) => {
     const fijos = await page.evaluate(() => {
       const html = document.body.innerHTML;
 
-      // Usar matchAll para buscar "No contratado (número)"
-      const matches = [...html.matchAll(/No\s+contratado\s+\((\d+)\)/gi)];
-
+      // Método 1: Buscar "No contratado (121)" con variaciones flexibles
+      let matches = [...html.matchAll(/No[\s\u00A0]+contratado[\s\u00A0]*\((\d+)\)/gi)];
       if (matches.length > 0) {
         return parseInt(matches[0][1]);
       }
 
-      // Método 2: Contar elementos con background='imagenes/chapab.jpg'
-      const bgMatches = [...html.matchAll(/background='imagenes\/chapab\.jpg'/gi)];
-      return bgMatches.length > 0 ? bgMatches.length : 0;
+      // Método 2: Buscar variación con &nbsp; literal
+      matches = [...html.matchAll(/No(?:&nbsp;|\s)+contratado(?:&nbsp;|\s)*\((\d+)\)/gi)];
+      if (matches.length > 0) {
+        return parseInt(matches[0][1]);
+      }
+
+      // Método 3: Buscar en contexto de tabla
+      matches = [...html.matchAll(/nocontratado[^>]*>[^<]*<\/span>[^>]*>[\s\S]{0,100}?No[^(]*\((\d+)\)/gi)];
+      if (matches.length > 0) {
+        return parseInt(matches[0][1]);
+      }
+
+      // Método 4: Contar elementos con background='imagenes/chapab.jpg'
+      const bgMatches = [...html.matchAll(/background\s*=\s*['"']?imagenes\/chapab\.jpg['"']?/gi)];
+      if (bgMatches.length > 0) {
+        return bgMatches.length;
+      }
+
+      // Método 5: Contar "chapab" como último recurso
+      const chapabMatches = [...html.matchAll(/chapab/gi)];
+      return chapabMatches.length > 0 ? chapabMatches.length : 0;
     });
 
     await browser.close();
@@ -335,24 +352,6 @@ async function performScraping() {
 
     // Esperar un poco más para asegurar que el contenido cargó
     await page.waitForTimeout(3000);
-
-    // Obtener el HTML completo para debug
-    const htmlContent = await page.content();
-    console.log('📄 HTML recibido (primeros 500 chars):', htmlContent.substring(0, 500));
-    console.log('🔍 Buscando marcadores: TDazul=', htmlContent.includes('TDazul'),
-                'TDverde=', htmlContent.includes('TDverde'),
-                'TDrojo=', htmlContent.includes('TDrojo'),
-                'GRUAS=', htmlContent.includes('GRUAS'));
-
-    // Debug: extraer posiciones de los marcadores
-    const idx0814 = htmlContent.indexOf('TDazul');
-    const idx1420 = htmlContent.indexOf('TDverde');
-    const idx2002 = htmlContent.indexOf('TDrojo');
-    console.log('📍 Posiciones:', { TDazul: idx0814, TDverde: idx1420, TDrojo: idx2002 });
-
-    // Debug: extraer contenido alrededor de GRUAS
-    const gruasMatches = [...htmlContent.matchAll(/GRUAS.*?<Th[^>]*>(\d+)/gis)];
-    console.log('🔢 GRUAS encontradas:', gruasMatches.map((m, i) => ({ index: i, valor: m[1], posicion: m.index })));
 
     const demandasResult = await page.evaluate(() => {
         const result = {
@@ -447,60 +446,63 @@ async function performScraping() {
 
     await page.waitForTimeout(3000);
 
-    // Obtener el HTML completo para analizar
-    const chaperoHTML = await page.evaluate(() => document.documentElement.outerHTML);
-
-    // Debug: buscar tabla LEYENDA
-    const legendMatch = chaperoHTML.match(/<TABLE[^>]*>[\s\S]*?LEYENDA[\s\S]{0,2000}/i);
-    if (legendMatch) {
-      console.log('🔍 Fragmento HTML LEYENDA (primeros 800 chars):', legendMatch[0].substring(0, 800));
-    } else {
-      console.log('⚠️ No se encontró tabla LEYENDA en HTML');
-    }
+    // Obtener el HTML completo para analizar (usando body.innerHTML es más confiable)
+    const chaperoHTML = await page.evaluate(() => document.body.innerHTML);
 
     // Debug: buscar cualquier mención de "contratado"
     const contratadoIdx = chaperoHTML.toLowerCase().indexOf('contratado');
     if (contratadoIdx !== -1) {
-      const fragment = chaperoHTML.substring(Math.max(0, contratadoIdx - 50), Math.min(chaperoHTML.length, contratadoIdx + 200));
+      const fragment = chaperoHTML.substring(Math.max(0, contratadoIdx - 100), Math.min(chaperoHTML.length, contratadoIdx + 300));
       console.log('📄 Fragmento con "contratado":', fragment);
     } else {
       console.log('⚠️ No se encontró la palabra "contratado" en el HTML');
+      console.log('📄 Primeros 1000 chars del HTML:', chaperoHTML.substring(0, 1000));
     }
 
-    // Intentar extraer fijos con múltiples métodos
+    // Intentar extraer fijos con múltiples métodos (mejorados)
     let fijosResult = 0;
 
-    // Método 1: Buscar "No contratado (87)" o variaciones
-    const pattern1 = chaperoHTML.match(/No\s+contratado\s*\((\d+)\)/i);
-    if (pattern1) {
-      fijosResult = parseInt(pattern1[1]);
-      console.log('✅ Método 1 - No contratado:', fijosResult);
+    // Método 1: Buscar "No contratado (121)" con variaciones flexibles
+    // Manejando espacios normales, &nbsp;, y múltiples espacios
+    const pattern1Match = chaperoHTML.match(/No[\s\u00A0]+contratado[\s\u00A0]*\((\d+)\)/i);
+    if (pattern1Match) {
+      fijosResult = parseInt(pattern1Match[1]);
+      console.log('✅ Método 1 - No contratado (regex flexible):', fijosResult);
     }
 
-    // Método 2: Contar backgrounds chapab.jpg
+    // Método 2: Buscar variación con &nbsp; literal
     if (fijosResult === 0) {
-      const pattern2 = [...chaperoHTML.matchAll(/background\s*=\s*['"']?imagenes\/chapab\.jpg['"']?/gi)];
-      if (pattern2.length > 0) {
-        fijosResult = pattern2.length;
-        console.log('✅ Método 2 - Contar backgrounds chapab.jpg:', fijosResult);
+      const pattern2Match = chaperoHTML.match(/No(?:&nbsp;|\s)+contratado(?:&nbsp;|\s)*\((\d+)\)/i);
+      if (pattern2Match) {
+        fijosResult = parseInt(pattern2Match[1]);
+        console.log('✅ Método 2 - No contratado (con &nbsp;):', fijosResult);
       }
     }
 
-    // Método 3: Buscar cualquier número entre paréntesis después de "contratado"
+    // Método 3: Buscar en contexto de tabla (más específico)
     if (fijosResult === 0) {
-      const pattern3 = chaperoHTML.match(/contratado[^(]*\((\d+)\)/i);
-      if (pattern3) {
-        fijosResult = parseInt(pattern3[1]);
-        console.log('✅ Método 3 - Número después de contratado:', fijosResult);
+      const pattern3Match = chaperoHTML.match(/nocontratado[^>]*>[^<]*<\/span>[^>]*>[\s\S]{0,100}?No[^(]*\((\d+)\)/i);
+      if (pattern3Match) {
+        fijosResult = parseInt(pattern3Match[1]);
+        console.log('✅ Método 3 - No contratado (contexto tabla):', fijosResult);
       }
     }
 
-    // Método 4: Contar elementos TD con background que contenga "chapab"
+    // Método 4: Contar backgrounds chapab.jpg directamente en el HTML
     if (fijosResult === 0) {
-      const pattern4 = [...chaperoHTML.matchAll(/chapab/gi)];
-      if (pattern4.length > 0) {
-        fijosResult = pattern4.length;
-        console.log('✅ Método 4 - Contar "chapab":', fijosResult);
+      const pattern4Matches = [...chaperoHTML.matchAll(/background\s*=\s*['"']?imagenes\/chapab\.jpg['"']?/gi)];
+      if (pattern4Matches.length > 0) {
+        fijosResult = pattern4Matches.length;
+        console.log('✅ Método 4 - Contar backgrounds chapab.jpg:', fijosResult);
+      }
+    }
+
+    // Método 5: Contar cualquier "chapab" como último recurso
+    if (fijosResult === 0) {
+      const pattern5Matches = [...chaperoHTML.matchAll(/chapab/gi)];
+      if (pattern5Matches.length > 0) {
+        fijosResult = pattern5Matches.length;
+        console.log('✅ Método 5 - Contar "chapab":', fijosResult);
       }
     }
 
