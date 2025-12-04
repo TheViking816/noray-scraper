@@ -354,20 +354,121 @@ async function performScraping() {
         }
     });
 
-    // 1. OBTENER PREVISIÓN
-    await page.goto('https://noray.cpevalencia.com/PrevisionDemanda.asp', {
+    // ESTRATEGIA: Obtener Chapero.asp PRIMERO (parece tener Cloudflare más estricto)
+    // 1. OBTENER CHAPERO
+    console.log('🔍 Obteniendo Chapero.asp primero...');
+
+    await page.goto('https://noray.cpevalencia.com/Chapero.asp', {
       waitUntil: 'domcontentloaded',
       timeout: 60000
     });
 
+    // Esperar bypass de Cloudflare con verificación robusta
+    console.log('⏳ Esperando bypass de Cloudflare (Chapero)...');
+    try {
+      await page.waitForFunction(
+        () => {
+          const bodyText = document.body.innerText.toLowerCase();
+          const html = document.body.innerHTML.toLowerCase();
+
+          const hasCloudflareChallenge =
+            document.title.includes('Just a moment') ||
+            document.title.includes('Un momento') ||
+            bodyText.includes('verificar que usted es un ser humano') ||
+            bodyText.includes('checking your browser') ||
+            bodyText.includes('please wait') ||
+            html.includes('challenges.cloudflare.com');
+
+          const hasRealContent =
+            html.includes('contratado') ||
+            html.includes('chapero') ||
+            html.includes('noray');
+
+          return !hasCloudflareChallenge && hasRealContent;
+        },
+        { timeout: 50000, polling: 500 }
+      );
+      console.log('✅ Cloudflare bypass completado y contenido verificado (Chapero)');
+    } catch (e) {
+      console.log('⚠️ Timeout esperando Cloudflare en Chapero, intentando continuar...');
+      await page.waitForTimeout(5000);
+    }
+
+    await page.waitForTimeout(2000);
+
+    // Obtener el HTML de Chapero
+    const chaperoHTML = await page.evaluate(() => document.body.innerHTML);
+
+    const contratadoIdx = chaperoHTML.toLowerCase().indexOf('contratado');
+    if (contratadoIdx !== -1) {
+      const fragment = chaperoHTML.substring(Math.max(0, contratadoIdx - 100), Math.min(chaperoHTML.length, contratadoIdx + 300));
+      console.log('📄 Fragmento con "contratado":', fragment);
+    } else {
+      console.log('⚠️ No se encontró la palabra "contratado" en el HTML');
+      console.log('📄 Primeros 1000 chars del HTML:', chaperoHTML.substring(0, 1000));
+    }
+
+    // Intentar extraer fijos con múltiples métodos (mejorados)
+    let fijosResult = 0;
+
+    const pattern1Match = chaperoHTML.match(/No[\s\u00A0]+contratado[\s\u00A0]*\((\d+)\)/i);
+    if (pattern1Match) {
+      fijosResult = parseInt(pattern1Match[1]);
+      console.log('✅ Método 1 - No contratado (regex flexible):', fijosResult);
+    }
+
+    if (fijosResult === 0) {
+      const pattern2Match = chaperoHTML.match(/No(?:&nbsp;|\s)+contratado(?:&nbsp;|\s)*\((\d+)\)/i);
+      if (pattern2Match) {
+        fijosResult = parseInt(pattern2Match[1]);
+        console.log('✅ Método 2 - No contratado (con &nbsp;):', fijosResult);
+      }
+    }
+
+    if (fijosResult === 0) {
+      const pattern3Match = chaperoHTML.match(/nocontratado[^>]*>[^<]*<\/span>[^>]*>[\s\S]{0,100}?No[^(]*\((\d+)\)/i);
+      if (pattern3Match) {
+        fijosResult = parseInt(pattern3Match[1]);
+        console.log('✅ Método 3 - No contratado (contexto tabla):', fijosResult);
+      }
+    }
+
+    if (fijosResult === 0) {
+      const pattern4Matches = [...chaperoHTML.matchAll(/background\s*=\s*['"']?imagenes\/chapab\.jpg['"']?/gi)];
+      if (pattern4Matches.length > 0) {
+        fijosResult = pattern4Matches.length;
+        console.log('✅ Método 4 - Contar backgrounds chapab.jpg:', fijosResult);
+      }
+    }
+
+    if (fijosResult === 0) {
+      const pattern5Matches = [...chaperoHTML.matchAll(/chapab/gi)];
+      if (pattern5Matches.length > 0) {
+        fijosResult = pattern5Matches.length;
+        console.log('✅ Método 5 - Contar "chapab":', fijosResult);
+      }
+    }
+
+    console.log('📊 Fijos extraídos:', fijosResult);
+
+    // 2. OBTENER PREVISIÓN (ahora tenemos cookies establecidas)
+    console.log('🔄 Navegando a PrevisionDemanda.asp...');
+    await page.waitForTimeout(2000); // Pausa para parecer humano
+
+    await page.goto('https://noray.cpevalencia.com/PrevisionDemanda.asp', {
+      waitUntil: 'domcontentloaded',
+      timeout: 60000,
+      referer: 'https://noray.cpevalencia.com/Chapero.asp'
+    });
+
     // Esperar a que Cloudflare complete su verificación
-    console.log('⏳ Esperando bypass de Cloudflare...');
+    console.log('⏳ Esperando bypass de Cloudflare (Prevision)...');
     try {
       await page.waitForFunction(
         () => !document.title.includes('Just a moment'),
         { timeout: 30000 }
       );
-      console.log('✅ Cloudflare bypass completado');
+      console.log('✅ Cloudflare bypass completado (Prevision)');
     } catch (e) {
       console.log('⚠️ Timeout esperando Cloudflare, continuando de todas formas...');
     }
@@ -442,118 +543,6 @@ async function performScraping() {
           console.log('DEBUG: Resultado final:', result);
           return result;
     });
-
-    // 2. OBTENER CHAPERO
-    // ESTRATEGIA: Ya tenemos las cookies de Cloudflare de PrevisionDemanda.asp
-    // que está en el mismo dominio, así que deberían funcionar también para Chapero.asp
-
-    console.log('🔄 Navegando a Chapero.asp con cookies existentes de Cloudflare...');
-
-    await page.goto('https://noray.cpevalencia.com/Chapero.asp', {
-      waitUntil: 'domcontentloaded',
-      timeout: 60000
-    });
-
-    // Esperar bypass de Cloudflare con verificación más robusta
-    console.log('⏳ Esperando bypass de Cloudflare (Chapero)...');
-    try {
-      // Esperar a que desaparezcan los indicadores de Cloudflare challenge
-      await page.waitForFunction(
-        () => {
-          const bodyText = document.body.innerText.toLowerCase();
-          const html = document.body.innerHTML.toLowerCase();
-
-          // Verificar que NO hay challenges activos
-          const hasCloudflareChallenge =
-            document.title.includes('Just a moment') ||
-            document.title.includes('Un momento') ||
-            bodyText.includes('verificar que usted es un ser humano') ||
-            bodyText.includes('checking your browser') ||
-            bodyText.includes('please wait') ||
-            html.includes('challenges.cloudflare.com');
-
-          // Verificar que SÍ hay contenido de la página real
-          const hasRealContent =
-            html.includes('contratado') ||
-            html.includes('chapero') ||
-            html.includes('noray');
-
-          // Solo continuar si no hay challenge Y hay contenido real
-          return !hasCloudflareChallenge && hasRealContent;
-        },
-        { timeout: 45000, polling: 500 }
-      );
-      console.log('✅ Cloudflare bypass completado y contenido verificado (Chapero)');
-    } catch (e) {
-      console.log('⚠️ Timeout esperando Cloudflare en Chapero, intentando continuar...');
-      // Dar tiempo extra por si acaso
-      await page.waitForTimeout(5000);
-    }
-
-    // Esperar adicional para asegurar renderizado completo
-    await page.waitForTimeout(2000);
-
-    // Obtener el HTML completo para analizar (usando body.innerHTML es más confiable)
-    const chaperoHTML = await page.evaluate(() => document.body.innerHTML);
-
-    // Debug: buscar cualquier mención de "contratado"
-    const contratadoIdx = chaperoHTML.toLowerCase().indexOf('contratado');
-    if (contratadoIdx !== -1) {
-      const fragment = chaperoHTML.substring(Math.max(0, contratadoIdx - 100), Math.min(chaperoHTML.length, contratadoIdx + 300));
-      console.log('📄 Fragmento con "contratado":', fragment);
-    } else {
-      console.log('⚠️ No se encontró la palabra "contratado" en el HTML');
-      console.log('📄 Primeros 1000 chars del HTML:', chaperoHTML.substring(0, 1000));
-    }
-
-    // Intentar extraer fijos con múltiples métodos (mejorados)
-    let fijosResult = 0;
-
-    // Método 1: Buscar "No contratado (121)" con variaciones flexibles
-    // Manejando espacios normales, &nbsp;, y múltiples espacios
-    const pattern1Match = chaperoHTML.match(/No[\s\u00A0]+contratado[\s\u00A0]*\((\d+)\)/i);
-    if (pattern1Match) {
-      fijosResult = parseInt(pattern1Match[1]);
-      console.log('✅ Método 1 - No contratado (regex flexible):', fijosResult);
-    }
-
-    // Método 2: Buscar variación con &nbsp; literal
-    if (fijosResult === 0) {
-      const pattern2Match = chaperoHTML.match(/No(?:&nbsp;|\s)+contratado(?:&nbsp;|\s)*\((\d+)\)/i);
-      if (pattern2Match) {
-        fijosResult = parseInt(pattern2Match[1]);
-        console.log('✅ Método 2 - No contratado (con &nbsp;):', fijosResult);
-      }
-    }
-
-    // Método 3: Buscar en contexto de tabla (más específico)
-    if (fijosResult === 0) {
-      const pattern3Match = chaperoHTML.match(/nocontratado[^>]*>[^<]*<\/span>[^>]*>[\s\S]{0,100}?No[^(]*\((\d+)\)/i);
-      if (pattern3Match) {
-        fijosResult = parseInt(pattern3Match[1]);
-        console.log('✅ Método 3 - No contratado (contexto tabla):', fijosResult);
-      }
-    }
-
-    // Método 4: Contar backgrounds chapab.jpg directamente en el HTML
-    if (fijosResult === 0) {
-      const pattern4Matches = [...chaperoHTML.matchAll(/background\s*=\s*['"']?imagenes\/chapab\.jpg['"']?/gi)];
-      if (pattern4Matches.length > 0) {
-        fijosResult = pattern4Matches.length;
-        console.log('✅ Método 4 - Contar backgrounds chapab.jpg:', fijosResult);
-      }
-    }
-
-    // Método 5: Contar cualquier "chapab" como último recurso
-    if (fijosResult === 0) {
-      const pattern5Matches = [...chaperoHTML.matchAll(/chapab/gi)];
-      if (pattern5Matches.length > 0) {
-        fijosResult = pattern5Matches.length;
-        console.log('✅ Método 5 - Contar "chapab":', fijosResult);
-      }
-    }
-
-    console.log('📊 Fijos extraídos:', fijosResult);
 
     await browser.close();
 
