@@ -132,41 +132,23 @@ app.get('/api/prevision', async (req, res) => {
         result['20-02'].gruas = parseInt(gruasMatches[2][1]);
       }
 
-      // Extraer TODOS los coches (patrón C2)
-      const cochesMatches = [];
-      const cochesRegex = /(?:(\d+)|>)&nbsp;C2/gi;
-      let match;
-      while ((match = cochesRegex.exec(html)) !== null) {
-        cochesMatches.push({
-          valor: match[1] ? parseInt(match[1]) : 0,
-          posicion: match.index
-        });
-      }
+      // Extraer coches de la tabla específica (después de "Equipos Previstos")
+      const equiposIdx = html.indexOf('Equipos Previstos');
+      if (equiposIdx !== -1) {
+        const tablaCochesHTML = html.substring(equiposIdx);
 
-      // Buscar las posiciones de los marcadores de turno
-      const tdazulIdx = html.search(/class[^>]*TDazul/i);
-      const tdverdeIdx = html.search(/class[^>]*TDverde/i);
-      const tdrojoIdx = html.search(/class[^>]*TDrojo/i);
+        // Buscar cada turno en la tabla de coches
+        const patrones = [
+          { turno: '08-14', clase: 'TDazul' },
+          { turno: '14-20', clase: 'TDverde' },
+          { turno: '20-02', clase: 'TDrojo' }
+        ];
 
-      // Asignar coches según el orden de aparición
-      if (cochesMatches.length > 0) {
-        cochesMatches.sort((a, b) => a.posicion - b.posicion);
-
-        for (const coche of cochesMatches) {
-          if (tdazulIdx !== -1 && coche.posicion > tdazulIdx &&
-              (tdverdeIdx === -1 || coche.posicion < tdverdeIdx)) {
-            if (result['08-14'].coches === 0) {
-              result['08-14'].coches = coche.valor;
-            }
-          } else if (tdverdeIdx !== -1 && coche.posicion > tdverdeIdx &&
-                     (tdrojoIdx === -1 || coche.posicion < tdrojoIdx)) {
-            if (result['14-20'].coches === 0) {
-              result['14-20'].coches = coche.valor;
-            }
-          } else if (tdrojoIdx !== -1 && coche.posicion > tdrojoIdx) {
-            if (result['20-02'].coches === 0) {
-              result['20-02'].coches = coche.valor;
-            }
+        for (const { turno, clase } of patrones) {
+          const regex = new RegExp(`class\\s*=\\s*${clase}[^>]*>.*?<TD[^>]*>(\\d+)&nbsp;C2`, 'is');
+          const match = tablaCochesHTML.match(regex);
+          if (match) {
+            result[turno].coches = parseInt(match[1]);
           }
         }
       }
@@ -498,44 +480,23 @@ async function performScraping() {
             result['20-02'].gruas = parseInt(gruasMatches[2][1]);
           }
 
-          // Extraer TODOS los coches (patrón C2)
-          const cochesMatches = [];
-          const cochesRegex = /(?:(\d+)|>)&nbsp;C2/gi;
-          let match;
-          while ((match = cochesRegex.exec(html)) !== null) {
-            cochesMatches.push({
-              valor: match[1] ? parseInt(match[1]) : 0,
-              posicion: match.index
-            });
-          }
+          // Extraer coches de la tabla específica (después de "Equipos Previstos")
+          const equiposIdx = html.indexOf('Equipos Previstos');
+          if (equiposIdx !== -1) {
+            const tablaCochesHTML = html.substring(equiposIdx);
 
-          console.log('DEBUG: Coches encontrados:', cochesMatches.length);
+            // Buscar cada turno en la tabla de coches
+            const patrones = [
+              { turno: '08-14', clase: 'TDazul' },
+              { turno: '14-20', clase: 'TDverde' },
+              { turno: '20-02', clase: 'TDrojo' }
+            ];
 
-          // Buscar las posiciones de los marcadores de turno
-          const tdazulIdx = html.search(/class[^>]*TDazul/i);
-          const tdverdeIdx = html.search(/class[^>]*TDverde/i);
-          const tdrojoIdx = html.search(/class[^>]*TDrojo/i);
-
-          // Asignar coches según el orden de aparición
-          if (cochesMatches.length > 0) {
-            cochesMatches.sort((a, b) => a.posicion - b.posicion);
-
-            // Encontrar qué coches están después de cada turno
-            for (const coche of cochesMatches) {
-              if (tdazulIdx !== -1 && coche.posicion > tdazulIdx &&
-                  (tdverdeIdx === -1 || coche.posicion < tdverdeIdx)) {
-                if (result['08-14'].coches === 0) {
-                  result['08-14'].coches = coche.valor;
-                }
-              } else if (tdverdeIdx !== -1 && coche.posicion > tdverdeIdx &&
-                         (tdrojoIdx === -1 || coche.posicion < tdrojoIdx)) {
-                if (result['14-20'].coches === 0) {
-                  result['14-20'].coches = coche.valor;
-                }
-              } else if (tdrojoIdx !== -1 && coche.posicion > tdrojoIdx) {
-                if (result['20-02'].coches === 0) {
-                  result['20-02'].coches = coche.valor;
-                }
+            for (const { turno, clase } of patrones) {
+              const regex = new RegExp(`class\\s*=\\s*${clase}[^>]*>.*?<TD[^>]*>(\\d+)&nbsp;C2`, 'is');
+              const match = tablaCochesHTML.match(regex);
+              if (match) {
+                result[turno].coches = parseInt(match[1]);
               }
             }
           }
