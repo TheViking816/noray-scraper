@@ -132,12 +132,16 @@ app.get('/api/prevision', async (req, res) => {
         result['20-02'].gruas = parseInt(gruasMatches[2][1]);
       }
 
-      // Extraer coches de la tabla específica (después de "Equipos Previstos")
-      const equiposIdx = html.indexOf('Equipos Previstos');
+      // ESTRATEGIA MÚLTIPLE para extraer coches
+      // Método 1: Buscar después de "Equipos Previstos"
+      let equiposIdx = html.indexOf('Equipos Previstos');
+      if (equiposIdx === -1) {
+        // Probar variaciones
+        equiposIdx = html.indexOf('Equipos');
+      }
+
       if (equiposIdx !== -1) {
         const tablaCochesHTML = html.substring(equiposIdx);
-
-        // Buscar cada turno en la tabla de coches
         const patrones = [
           { turno: '08-14', clase: 'TDazul' },
           { turno: '14-20', clase: 'TDverde' },
@@ -149,6 +153,22 @@ app.get('/api/prevision', async (req, res) => {
           const match = tablaCochesHTML.match(regex);
           if (match) {
             result[turno].coches = parseInt(match[1]);
+          }
+        }
+      }
+
+      // Método 2: Si no encontró coches, buscar patrón directo en todo el HTML
+      if (result['08-14'].coches === 0 && result['14-20'].coches === 0 && result['20-02'].coches === 0) {
+        // Buscar todos los C2 que NO estén en la primera tabla (después de la última fila de GRUAS)
+        const lastGruasIdx = html.lastIndexOf('GRUAS');
+        if (lastGruasIdx !== -1) {
+          const afterGruas = html.substring(lastGruasIdx + 200);
+          const cochesMatches = [...afterGruas.matchAll(/(\d+)&nbsp;C2/gi)];
+
+          if (cochesMatches.length >= 3) {
+            result['08-14'].coches = parseInt(cochesMatches[0][1]);
+            result['14-20'].coches = parseInt(cochesMatches[1][1]);
+            result['20-02'].coches = parseInt(cochesMatches[2][1]);
           }
         }
       }
@@ -480,12 +500,15 @@ async function performScraping() {
             result['20-02'].gruas = parseInt(gruasMatches[2][1]);
           }
 
-          // Extraer coches de la tabla específica (después de "Equipos Previstos")
-          const equiposIdx = html.indexOf('Equipos Previstos');
+          // ESTRATEGIA MÚLTIPLE para extraer coches
+          // Método 1: Buscar después de "Equipos Previstos"
+          let equiposIdx = html.indexOf('Equipos Previstos');
+          if (equiposIdx === -1) {
+            equiposIdx = html.indexOf('Equipos');
+          }
+
           if (equiposIdx !== -1) {
             const tablaCochesHTML = html.substring(equiposIdx);
-
-            // Buscar cada turno en la tabla de coches
             const patrones = [
               { turno: '08-14', clase: 'TDazul' },
               { turno: '14-20', clase: 'TDverde' },
@@ -497,6 +520,23 @@ async function performScraping() {
               const match = tablaCochesHTML.match(regex);
               if (match) {
                 result[turno].coches = parseInt(match[1]);
+              }
+            }
+          }
+
+          // Método 2: Si no encontró coches, buscar patrón directo
+          if (result['08-14'].coches === 0 && result['14-20'].coches === 0 && result['20-02'].coches === 0) {
+            console.log('DEBUG: Método 1 falló, intentando método 2...');
+            const lastGruasIdx = html.lastIndexOf('GRUAS');
+            if (lastGruasIdx !== -1) {
+              const afterGruas = html.substring(lastGruasIdx + 200);
+              const cochesMatches = [...afterGruas.matchAll(/(\d+)&nbsp;C2/gi)];
+              console.log('DEBUG: Coches encontrados con método 2:', cochesMatches.length);
+
+              if (cochesMatches.length >= 3) {
+                result['08-14'].coches = parseInt(cochesMatches[0][1]);
+                result['14-20'].coches = parseInt(cochesMatches[1][1]);
+                result['20-02'].coches = parseInt(cochesMatches[2][1]);
               }
             }
           }
