@@ -149,10 +149,14 @@ app.get('/api/prevision', async (req, res) => {
         ];
 
         for (const { turno, clase } of patrones) {
-          const regex = new RegExp(`class\\s*=\\s*${clase}[^>]*>.*?<TD[^>]*>(\\d+)&nbsp;C2`, 'is');
-          const match = tablaCochesHTML.match(regex);
-          if (match) {
-            result[turno].coches = parseInt(match[1]);
+          // Buscar la clase y luego el siguiente patrón de C2 (método simplificado que funciona)
+          const claseIdx = tablaCochesHTML.indexOf(clase);
+          if (claseIdx !== -1) {
+            const afterClass = tablaCochesHTML.substring(claseIdx);
+            const c2Match = afterClass.match(/(\d+)&nbsp;C2/);
+            if (c2Match) {
+              result[turno].coches = parseInt(c2Match[1]);
+            }
           }
         }
       }
@@ -516,10 +520,14 @@ async function performScraping() {
             ];
 
             for (const { turno, clase } of patrones) {
-              const regex = new RegExp(`class\\s*=\\s*${clase}[^>]*>.*?<TD[^>]*>(\\d+)&nbsp;C2`, 'is');
-              const match = tablaCochesHTML.match(regex);
-              if (match) {
-                result[turno].coches = parseInt(match[1]);
+              // Buscar la clase y luego el siguiente patrón de C2 (método simplificado que funciona)
+              const claseIdx = tablaCochesHTML.indexOf(clase);
+              if (claseIdx !== -1) {
+                const afterClass = tablaCochesHTML.substring(claseIdx);
+                const c2Match = afterClass.match(/(\d+)&nbsp;C2/);
+                if (c2Match) {
+                  result[turno].coches = parseInt(c2Match[1]);
+                }
               }
             }
           }
